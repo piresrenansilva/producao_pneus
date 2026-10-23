@@ -42,11 +42,9 @@ const FORMS = {
     field("obs", "Observações", "textarea")
   ].join(""),
   produtos: () => [
-    field("produtoId", "Código do produto", "text"), field("nome", "Nome", "text", "required"),
-    field("categoria", "Categoria", "select"),
-    `<label class="full" id="carcacaProdutoCampo" hidden>Carcaça (origem da medida e do custo)
-      <select id="carcacaProduto"></select>
-    </label>`,
+    field("produtoId", "Código do produto", "text", "required maxlength='60'"), field("nome", "Nome", "text", "required"),
+    field("categoriaId", "Categoria", "select", "required"),
+    field("modelo", "Modelo", "text"),
     field("medida", "Medida", "text"),
     field("unidade", "Unidade (ex.: un, pneu)", "text"), field("preco", "Preço de venda", "text", "required class='preco-mask'"),
     field("custo", "Custo unitário", "text", "required class='preco-mask'"),
@@ -106,15 +104,31 @@ const FORMS = {
     field("operador", "Operador", "select"), field("status", "Status", "select")
   ].join(""),
   cargas: () => [
-    field("tipo", "Tipo", "select"), field("data", "Data", "date", "required"),
-    `<label class="full carga-pedido-campo">Venda / número do pedido
-      <input id="buscaPedidoCarga" type="search" placeholder="Digite ao menos 3 números do pedido" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="sugestoesPedidoCarga" aria-expanded="false">
-      <div class="carga-pedido-sugestoes" id="sugestoesPedidoCarga" role="listbox" hidden></div>
-    </label>
-    <select name="pedidoId" id="pedidoIdCarga" hidden></select>
-    <div class="full carga-venda-preview" id="cargaVendaPreview" aria-live="polite"><p class="hint">Digite 3 ou mais números e escolha uma sugestão para ver o cliente e o total de peças. O vínculo é opcional.</p></div>`,
-    field("motorista", "Motorista (nome)", "text"), field("funcionario", "Funcionário", "select"),
-    field("status", "Status", "select")
+    `<div class="full apontamento-grade">
+      <div class="grid apontamento-coluna">
+        ${field("tipo", "Tipo", "select", "required")}
+        ${field("data", "Data", "date", "required")}
+        <label class="full carga-pedido-campo">Venda / número do pedido
+          <input id="buscaPedidoCarga" type="search" placeholder="Digite ao menos 3 números do pedido" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="sugestoesPedidoCarga" aria-expanded="false">
+          <div class="carga-pedido-sugestoes" id="sugestoesPedidoCarga" role="listbox" hidden></div>
+        </label>
+        <select name="pedidoId" id="pedidoIdCarga" hidden></select>
+        <div class="full carga-venda-preview" id="cargaVendaPreview" aria-live="polite"><p class="hint">Digite 3 ou mais números e escolha uma sugestão para ver o cliente e o total de peças. O vínculo é opcional.</p></div>
+        ${field("motorista", "Motorista (nome)", "text")}
+        ${field("funcionario", "Funcionário", "select")}
+        ${field("status", "Status", "select")}
+        <label class="full">Buscar produto
+          <input id="buscaProdutoCarga" type="search" placeholder="Digite ao menos 2 letras: nome, código, modelo ou medida" autocomplete="off">
+        </label>
+        <div class="full apontamento-resultados" id="cargaProdutoResultados"></div>
+      </div>
+      <aside class="apontamento-lateral" aria-label="Produtos do movimento">
+        <h3 class="apontamento-lateral-titulo">Produtos do movimento<small id="cargaResumoProdutos"></small></h3>
+        <p class="hint carga-estoque-aviso" id="cargaEstoqueAviso" aria-live="polite"></p>
+        <div class="apontamento-selecionados" id="cargaProdutosSelecionados"></div>
+        <div class="apontamento-total-geral"><span>Total de peças</span><output id="totalPecasCarga" aria-live="polite">0</output></div>
+      </aside>
+    </div>`
   ].join(""),
   financeiro: () => [
     field("data", "Data", "date", "required"), field("tipo", "Tipo", "select"),
@@ -145,7 +159,7 @@ const SELECTS = {
   clientes: { tipo: ["Cliente", "Fornecedor", "Funcionário"], status: ["Ativo", "Inativo"] },
   veiculos: { status: ["Ativo", "Inativo"] },
   servicos: { status: ["Ativo", "Inativo"] },
-  produtos: { categoria: ["Revenda", "Carcaça"], status: ["Ativo", "Inativo"] },
+  produtos: { status: ["Ativo", "Inativo"] },
   carcacas: {
     origem: ["cliente", "compra", "retorno"],
     status: ["recebida", "inspecionada", "aprovada", "reprovada", "em produção", "pronta"]
@@ -176,6 +190,7 @@ function fillSelects(root, kind, row) {
     const isMedidaCarcaca = kind === "producao" && sel.name === "medida";
     const isFuncionarioCarga = kind === "cargas" && sel.name === "funcionario";
     const isVendaCarga = kind === "cargas" && sel.name === "pedidoId";
+    const isCategoriaProduto = kind === "produtos" && sel.name === "categoriaId";
     let choices = options;
     if (isCliente) {
       choices = db.clientes
@@ -205,6 +220,11 @@ function fillSelects(root, kind, row) {
         medidas.unshift(medidaAtual);
       }
       choices = medidas;
+    } else if (isCategoriaProduto) {
+      // Categorias vêm da tabela produtoCategoria (ativas + a atual do produto, se inativa).
+      choices = (db.produtoCategoria || [])
+        .filter((categoria) => String(categoria.status || "").toLowerCase() !== "inativo" || sameId(categoria.id, row?.categoriaId))
+        .map((categoria) => [categoria.id, categoria.nome]);
     } else if (isVendaCarga) {
       choices = vendasDisponiveisCarga(row).map((pedido) => {
         const cliente = pedido.cliente || db.clientes.find((item) => sameId(item.id, pedido.clienteId))?.nome || "Cliente não informado";
@@ -212,7 +232,7 @@ function fillSelects(root, kind, row) {
         return [pedido.id, `${numero} · ${cliente} · ${totalPecasPedido(pedido)} peças`];
       });
     }
-    const dinamico = isCliente || isOperador || isMedidaCarcaca || isFuncionarioCarga || isVendaCarga;
+    const dinamico = isCliente || isOperador || isMedidaCarcaca || isFuncionarioCarga || isVendaCarga || isCategoriaProduto;
     const placeholder = isMedidaCarcaca && choices.length === 0
       ? "Cadastre uma carcaça com medida"
       : isFuncionarioCarga && choices.length === 0
@@ -221,8 +241,10 @@ function fillSelects(root, kind, row) {
           ? "Nenhuma venda faturada ou paga"
           : isVendaCarga
             ? "Sem venda vinculada (opcional)"
-            : "Selecione...";
-    sel.innerHTML = (dinamico ? `<option value="">${placeholder}</option>` : "") + choices.map((o) => Array.isArray(o)
+            : isCategoriaProduto && row && !row.categoriaId && row.categoria
+              ? `Selecione... (categoria antiga: ${row.categoria})`
+              : "Selecione...";
+    sel.innerHTML = (dinamico ? `<option value="">${escapeHtml(placeholder)}</option>` : "") + choices.map((o) => Array.isArray(o)
       ? `<option value="${escapeHtml(o[0])}">${escapeHtml(o[1])}</option>`
       : `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join("");
   });
@@ -257,6 +279,14 @@ document.getElementById("form").onsubmit = async (e) => {
   camposNumero.forEach((k) => {
     if (k in data) data[k] = Number(data[k] || 0);
   });
+  if (editing.kind === "produtos") {
+    data.produtoId = String(data.produtoId || "").trim();
+    const codigo = data.produtoId.toLocaleLowerCase("pt-BR");
+    const repetido = db.produtos.find((produto) => !sameId(produto.id, editing.id)
+      && String(produto.produtoId || "").trim().toLocaleLowerCase("pt-BR") === codigo);
+    if (!codigo) { toast("Informe o código do produto.", "warn"); return; }
+    if (repetido) { toast(`Já existe um produto com o código ${data.produtoId} (${repetido.nome}). Use outro código.`, "warn"); return; }
+  }
   try {
     if (editing.id) {
       await api(`/api/${editing.kind}/${editing.id}`, { method: "PUT", body: JSON.stringify(data) });
@@ -413,7 +443,7 @@ function openForm(kind, row) {
   if (!openForm._submitPadrao) openForm._submitPadrao = form.onsubmit;
   else form.onsubmit = openForm._submitPadrao;
   // O apontamento usa um popup mais largo, com a lista de carcaças ao lado.
-  form.classList.toggle("modal-largo", kind === "carcacaOrdens");
+  form.classList.toggle("modal-largo", kind === "carcacaOrdens" || kind === "cargas");
   fillSelects(form, kind, row);
   if (kind === "clientes") {
     const btnCnpj = document.getElementById("btnBuscarCnpj");
@@ -451,40 +481,8 @@ function openForm(kind, row) {
     }
   } else if (getField(form, "data")) getField(form, "data").value = today();
   if (kind === "produtos") {
-    const categoriaSel = form.querySelector('select[name="categoria"]');
-    const carcacaCampo = document.getElementById("carcacaProdutoCampo");
-    const carcacaSel = document.getElementById("carcacaProduto");
-    // Preserva no select categorias antigas diferentes de Revenda/Carcaça.
-    const categoriaAtual = String(row?.categoria || "").trim();
-    if (categoriaSel && categoriaAtual && ![...categoriaSel.options].some((option) => option.value.toLocaleLowerCase("pt-BR") === categoriaAtual.toLocaleLowerCase("pt-BR"))) {
-      categoriaSel.add(new Option(categoriaAtual, categoriaAtual), 0);
-    }
-    if (categoriaSel && categoriaAtual) categoriaSel.value = categoriaAtual;
-    // Lista as carcaças cadastradas: medida · dono · quantidade · valor unitário · status.
-    if (carcacaSel) {
-      const carcacas = [...db.carcacas].sort((a, b) => String(a.medida || "").localeCompare(String(b.medida || ""), "pt-BR"));
-      carcacaSel.innerHTML = `<option value="">Selecione uma carcaça...</option>` + carcacas.map((carcaca) =>
-        `<option value="${escapeAttr(carcaca.id)}">${escapeHtml(carcaca.medida || "Sem medida")}${carcaca.dono ? ` · ${escapeHtml(carcaca.dono)}` : ""} · ${Number(carcaca.qtd) || 0} un · ${money(Number(carcaca.valorUnitario) || 0)}${carcaca.status ? ` · ${escapeHtml(carcaca.status)}` : ""}</option>`
-      ).join("");
-    }
-    const atualizarCampoCarcaca = () => {
-      if (!carcacaCampo || !categoriaSel) return;
-      const ehCarcaca = String(categoriaSel.value || "").trim().toLocaleLowerCase("pt-BR") === "carcaça";
-      carcacaCampo.hidden = !ehCarcaca;
-      if (!ehCarcaca && carcacaSel) carcacaSel.value = "";
-    };
-    categoriaSel?.addEventListener("change", atualizarCampoCarcaca);
-    carcacaSel?.addEventListener("change", () => {
-      const carcaca = db.carcacas.find((item) => sameId(item.id, carcacaSel.value));
-      if (!carcaca) return;
-      const medidaEl = getField(form, "medida");
-      if (medidaEl && carcaca.medida) medidaEl.value = carcaca.medida;
-      // Preenche o "Custo unitário" com o valor de entrada da carcaça.
-      // Para preencher o campo "Preço de venda" em vez do custo, troque "custo" por "preco" na linha abaixo.
-      const custoEl = getField(form, "custo");
-      if (custoEl) custoEl.value = (Number(carcaca.valorUnitario) || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    });
-    atualizarCampoCarcaca();
+    const categoriaSel = form.querySelector('select[name="categoriaId"]');
+    if (categoriaSel) categoriaSel.value = row?.categoriaId ? String(row.categoriaId) : "";
   }
   if (kind === "cargas") {
     const vendaSelect = getField(form, "pedidoId");
@@ -574,6 +572,179 @@ function openForm(kind, row) {
       }
     });
     atualizarResumoVenda();
+
+    // ---- Vários produtos por movimento (descarga = entrada; carga = saída) ----
+    const tipoSel = getField(form, "tipo");
+    const buscaProduto = document.getElementById("buscaProdutoCarga");
+    const resultadosEl = document.getElementById("cargaProdutoResultados");
+    const selecionadosEl = document.getElementById("cargaProdutosSelecionados");
+    const avisoEl = document.getElementById("cargaEstoqueAviso");
+    const chaveDe = (id) => String(id || "").toLowerCase();
+    const selecionados = new Map();
+    const disponiveis = db.produtos
+      .filter((produto) => String(produto.status || "").toLocaleLowerCase("pt-BR") !== "inativo")
+      .sort((a, b) => String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR"));
+    const produtoPorId = (id) => db.produtos.find((produto) => sameId(produto.id, id));
+    const novoItem = (produto, qtd, legado = {}) => ({
+      produtoRef: produto?.id || legado.produtoRef,
+      produtoId: produto?.produtoId || legado.produtoId || "",
+      nome: produto?.nome || legado.item || "Produto",
+      medida: produto?.medida || legado.medida || "",
+      qtd: Math.max(1, Math.floor(Number(qtd) || 1))
+    });
+    (Array.isArray(row?.itens) ? row.itens : []).forEach((item) => {
+      if (!item.produtoRef) return;
+      selecionados.set(chaveDe(item.produtoRef), novoItem(produtoPorId(item.produtoRef), item.qtd, item));
+    });
+    const tipoAtual = () => String(tipoSel?.value || "").toLowerCase();
+    const movimentaEstoque = () => tipoAtual() === "descarga" || (tipoAtual() === "carga" && !vendaSelect?.value);
+    const estoqueDe = (produtoRef) => { const produto = produtoPorId(produtoRef); return produto ? estoqueLocal(produto) : 0; };
+
+    const atualizarAviso = () => {
+      if (!avisoEl) return;
+      avisoEl.textContent = tipoAtual() === "descarga"
+        ? "Descarga: as quantidades serão somadas ao estoque."
+        : vendaSelect?.value
+          ? "Carga vinculada à venda: o estoque já foi baixado no faturamento, então este movimento não altera o estoque."
+          : "Carga: as quantidades serão retiradas do estoque.";
+    };
+    const atualizarTotais = () => {
+      const itens = [...selecionados.values()];
+      const total = itens.reduce((soma, item) => soma + item.qtd, 0);
+      const totalEl = document.getElementById("totalPecasCarga");
+      if (totalEl) totalEl.textContent = `${total} ${total === 1 ? "peça" : "peças"}`;
+      const resumoEl = document.getElementById("cargaResumoProdutos");
+      if (resumoEl) resumoEl.textContent = itens.length ? ` · ${itens.length} ${itens.length === 1 ? "produto" : "produtos"}` : "";
+      // Destaca linhas de saída acima do estoque atual (o servidor faz a validação final).
+      selecionadosEl?.querySelectorAll("[data-carga-item]").forEach((linha) => {
+        const item = selecionados.get(linha.dataset.cargaItem);
+        const falta = item && movimentaEstoque() && tipoAtual() === "carga" && item.qtd > estoqueDe(item.produtoRef);
+        linha.classList.toggle("carga-sem-estoque", Boolean(falta));
+      });
+    };
+    const renderSelecionados = () => {
+      if (!selecionadosEl) return;
+      const itens = [...selecionados.values()];
+      selecionadosEl.innerHTML = itens.length
+        ? `<table class="apontamento-tabela carga-tabela">
+            <thead><tr><th>Cód.</th><th>Produto</th><th>Medida</th><th class="apontamento-num">Estoque</th><th class="apontamento-num">Qtd</th><th></th></tr></thead>
+            <tbody>${itens.map((item) => {
+              const chave = chaveDe(item.produtoRef);
+              return `<tr data-carga-item="${escapeAttr(chave)}">
+                <td class="mono">${escapeHtml(item.produtoId || "—")}</td>
+                <td>${escapeHtml(item.nome)}</td>
+                <td>${escapeHtml(item.medida || "—")}</td>
+                <td class="apontamento-num">${estoqueDe(item.produtoRef)}</td>
+                <td class="apontamento-num"><input type="number" min="1" step="1" value="${item.qtd}" data-carga-qtd="${escapeAttr(chave)}" aria-label="Quantidade de ${escapeAttr(item.nome)}"></td>
+                <td class="apontamento-num"><button type="button" class="btn danger small apontamento-remove" data-carga-remove="${escapeAttr(chave)}" aria-label="Remover ${escapeAttr(item.nome)}">×</button></td>
+              </tr>`;
+            }).join("")}</tbody>
+          </table>`
+        : `<p class="hint">Nenhum produto selecionado. Pesquise ao lado e toque em Adicionar, ou escolha uma venda para trazer os pneus dela.</p>`;
+      selecionadosEl.querySelectorAll("[data-carga-remove]").forEach((botao) => botao.onclick = () => {
+        selecionados.delete(botao.dataset.cargaRemove);
+        renderSelecionados();
+        renderResultados();
+      });
+      selecionadosEl.querySelectorAll("[data-carga-qtd]").forEach((input) => input.oninput = () => {
+        const item = selecionados.get(input.dataset.cargaQtd);
+        if (!item) return;
+        item.qtd = Math.max(1, Math.floor(Number(input.value) || 1));
+        atualizarTotais();
+      });
+      atualizarTotais();
+    };
+    const renderResultados = () => {
+      if (!resultadosEl) return;
+      const busca = normalizarBuscaEntidade((buscaProduto?.value || "").trim());
+      if (busca.length < 2) {
+        resultadosEl.innerHTML = `<p class="hint">${disponiveis.length
+          ? `Digite ao menos 2 letras para pesquisar entre os ${disponiveis.length} produtos ativos.`
+          : "Nenhum produto ativo cadastrado. Cadastre primeiro na aba Produtos."}</p>`;
+        return;
+      }
+      const encontrados = disponiveis
+        .filter((produto) => normalizarBuscaEntidade([produto.produtoId, produto.nome, produto.modelo, produto.medida, produto.categoria].join(" ")).includes(busca))
+        .slice(0, 12);
+      resultadosEl.innerHTML = encontrados.length
+        ? `<div class="apontamento-lista">${encontrados.map((produto) => {
+          const chave = chaveDe(produto.id);
+          const adicionado = selecionados.has(chave);
+          return `<div class="apontamento-resultado">
+            <div class="apontamento-resultado-info">
+              <span class="mono">${escapeHtml(produto.produtoId || "Sem código")}</span>
+              <strong>${escapeHtml(produto.nome)}</strong>
+              <small>${escapeHtml([produto.categoria, produto.medida].filter(Boolean).join(" · ") || "—")}</small>
+            </div>
+            <span class="apontamento-resultado-custo">Estoque: <strong>${estoqueLocal(produto)}</strong></span>
+            <button type="button" class="btn small" data-carga-add="${escapeAttr(chave)}" ${adicionado ? "disabled" : ""}>${adicionado ? "Adicionado" : "Adicionar"}</button>
+          </div>`;
+        }).join("")}</div>`
+        : `<p class="hint">Nenhum produto corresponde à pesquisa.</p>`;
+      resultadosEl.querySelectorAll("[data-carga-add]").forEach((botao) => botao.onclick = () => {
+        const produto = disponiveis.find((p) => chaveDe(p.id) === botao.dataset.cargaAdd);
+        if (!produto) return;
+        selecionados.set(chaveDe(produto.id), novoItem(produto, 1));
+        botao.disabled = true;
+        botao.textContent = "Adicionado";
+        renderSelecionados();
+      });
+    };
+    // Ao escolher uma venda, a lista vem preenchida com os pneus dela (pode ajustar depois).
+    const preencherComVenda = () => {
+      const venda = db.pedidos.find((pedido) => sameId(pedido.id, vendaSelect?.value));
+      if (!venda) return;
+      const pneus = (venda.itens || []).filter((item) => String(item.tipo || "pneu").toLowerCase() === "pneu" && item.produtoRef);
+      if (!pneus.length) return;
+      selecionados.clear();
+      pneus.forEach((item) => {
+        const chave = chaveDe(item.produtoRef);
+        const atual = selecionados.get(chave);
+        if (atual) atual.qtd += Math.max(1, Math.floor(Number(item.qtd) || 1));
+        else selecionados.set(chave, novoItem(produtoPorId(item.produtoRef), item.qtd, { produtoRef: item.produtoRef, produtoId: item.produtoId, item: item.descricao, medida: item.medida }));
+      });
+      renderSelecionados();
+      renderResultados();
+      toast(`Produtos da venda ${venda.numero || ""} carregados. Ajuste se necessário.`, "ok");
+    };
+    vendaSelect?.addEventListener("change", () => { atualizarAviso(); preencherComVenda(); atualizarTotais(); });
+    buscaPedido?.addEventListener("input", () => { atualizarAviso(); atualizarTotais(); });
+    tipoSel?.addEventListener("change", () => { atualizarAviso(); atualizarTotais(); });
+    buscaProduto?.addEventListener("input", renderResultados);
+    atualizarAviso();
+    renderResultados();
+    renderSelecionados();
+
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      const itens = [...selecionados.values()].map((item) => ({ produtoRef: item.produtoRef, qtd: Math.max(0, Math.floor(Number(item.qtd) || 0)) }));
+      if (!itens.length) { toast("Selecione ao menos um produto para o movimento.", "warn"); return; }
+      if (itens.some((item) => item.qtd < 1)) { toast("Cada produto deve ter quantidade igual ou maior que 1.", "warn"); return; }
+      const body = {
+        tipo: tipoSel?.value || "",
+        data: getField(form, "data")?.value || today(),
+        pedidoId: vendaSelect?.value || null,
+        motorista: getField(form, "motorista")?.value || "",
+        funcionario: getField(form, "funcionario")?.value || "",
+        status: getField(form, "status")?.value || "",
+        itens
+      };
+      try {
+        const resultado = await api(editing.id ? `/api/cargas/${editing.id}` : "/api/cargas", {
+          method: editing.id ? "PUT" : "POST",
+          body: JSON.stringify(body)
+        });
+        document.getElementById("modal").classList.remove("show");
+        const efeito = resultado.estoqueMovimentado
+          ? (body.tipo === "descarga" ? "Entrada lançada no estoque." : "Saída lançada no estoque.")
+          : "Estoque não alterado (carga de venda já faturada).";
+        toast(`Movimento salvo: ${resultado.totalPecas} peças. ${efeito}`, "ok");
+        await load();
+        render();
+      } catch (error) {
+        toast(`Não foi possível salvar: ${error.message}`, "bad");
+      }
+    };
   }
   form.querySelectorAll(".preco-mask").forEach((input) => {
     if (input.value !== "") {

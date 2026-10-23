@@ -579,31 +579,7 @@ async function concluirVenda(gerarPdf) {
 }
 
 async function baixarPdf(id) {
-  const token = sessionStorage.getItem("token");
-  const headers = {};
-  if (token) headers["Authorization"] = "Bearer " + token;
-  const response = await fetch(`/api/pedidos/${id}/pdf`, { headers });
-  if (response.status === 401) {
-    sessionStorage.removeItem("token");
-    sessionStorage.removeItem("usuario");
-    const overlay = document.getElementById("loginOverlay");
-    if (overlay) overlay.style.display = "flex";
-    throw new Error("Sessão expirada. Faça login novamente.");
-  }
-  if (!response.ok) {
-    let message = `Erro HTTP ${response.status}`;
-    try { const body = await response.json(); message = body.detail || message; } catch { }
-    throw new Error(message);
-  }
-  const blob = await response.blob();
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = response.headers.get("Content-Disposition")?.match(/filename="?([^";]+)"?/i)?.[1] || "pedido.pdf";
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
+  await baixarArquivo(`/api/pedidos/${id}/pdf`, "pedido.pdf");
 }
 
 function renderPedido() {

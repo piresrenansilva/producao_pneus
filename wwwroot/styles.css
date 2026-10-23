@@ -1413,6 +1413,15 @@ label.full,
   font-weight: 700;
 }
 
+/* Carga e descarga: tabela de produtos do movimento */
+.carga-tabela th:nth-child(3) { width: 92px; }
+.carga-tabela th:nth-child(4) { width: 72px; }
+.carga-tabela th:nth-child(5) { width: 72px; }
+.carga-tabela th:nth-child(6) { width: 34px; }
+.carga-tabela tr.carga-sem-estoque td { color: var(--bad, #d64545); }
+.carga-tabela tr.carga-sem-estoque input { border-color: var(--bad, #d64545); }
+.carga-estoque-aviso { margin: 0; }
+
 @media (max-width: 900px) {
   .apontamento-grade {
     grid-template-columns: 1fr;
@@ -1450,11 +1459,6 @@ label.full,
 .ordem-carcaca-itens td {
   padding: 6px 8px;
   text-align: left;
-}
-
-/* Campo de carcaça do formulário de produto: só aparece quando a categoria é Carcaça */
-#carcacaProdutoCampo[hidden] {
-  display: none;
 }
 
 .carcaca-valor-total output {

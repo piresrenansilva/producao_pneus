@@ -84,14 +84,20 @@ function bindColumn(request, column, value) {
 
 function dateSelect(column) {
   return column.type === 't'
-    ? `CONVERT(nvarchar(10), [${column.name}], 23) AS [${column.name}]`
-    : `[${column.name}]`;
+    ? `CONVERT(nvarchar(10), t.[${column.name}], 23) AS [${column.name}]`
+    : `t.[${column.name}]`;
 }
 
 async function readTable(pool, definition) {
-  const columns = [...definition.columns.map(dateSelect), ...(definition.extras || []).map((name) => `[${name}]`)];
-  const selected = ['[id]', ...columns].join(', ');
-  const result = await pool.request().query(`SELECT ${selected} FROM dbo.[${definition.table}] ORDER BY [criadoEm] DESC`);
+  const columns = [
+    ...definition.columns.map(dateSelect),
+    ...(definition.extras || []).map((name) => `t.[${name}]`),
+    ...Object.entries(definition.computed || {}).map(([name, expression]) => `${expression} AS [${name}]`)
+  ];
+  const selected = ['t.[id]', ...columns].join(', ');
+  const result = await pool.request().query(
+    `SELECT ${selected} FROM dbo.[${definition.table}] t ${definition.joins || ''} ORDER BY ${definition.orderBy || 't.[criadoEm] DESC'}`
+  );
   return result.recordset.map((row) => {
     const normalized = {};
     for (const [key, value] of Object.entries(row)) {
@@ -115,12 +121,13 @@ function embedItems(rows, items, fk) {
 
 async function getAllData(pool) {
   const data = {};
-  const embedOnly = new Set(['itens', 'carcacaOrdemItens']);
+  const embedOnly = new Set(['itens', 'carcacaOrdemItens', 'cargaItens']);
   for (const [route, definition] of Object.entries(tables)) {
     if (!embedOnly.has(route)) data[route] = await readTable(pool, definition);
   }
   embedItems(data.pedidos, await readTable(pool, tables.itens), 'pedidoId');
   embedItems(data.carcacaOrdens, await readTable(pool, tables.carcacaOrdemItens), 'ordemId');
+  embedItems(data.cargas, await readTable(pool, tables.cargaItens), 'cargaId');
   return data;
 }
 
@@ -163,15 +170,65 @@ async function validateCargaPedido(transaction, value, currentCargaId = null) {
   throw conflict('Selecione uma venda faturada ou paga.');
 }
 
+function ensureWritableRoute(definition) {
+  if (definition.readOnlyRoute) throw conflict('Este cadastro é somente leitura.');
+}
+
+// Confere se a categoria escolhida existe em produtoCategoria e está ativa.
+async function validateProdutoCategoria(transaction, value, currentProductId = null) {
+  const text = value == null ? '' : String(value).trim();
+  if (!text) throw badRequest('Selecione a categoria do produto.');
+  const categoriaId = Number(text);
+  if (!Number.isInteger(categoriaId) || categoriaId <= 0) throw badRequest('Categoria do produto inválida.');
+  const result = await new sql.Request(transaction)
+    .input('id', sql.Int, categoriaId)
+    .query('SELECT status FROM dbo.produtoCategoria WHERE id = @id');
+  const status = result.recordset[0]?.status;
+  if (status == null) throw conflict('A categoria selecionada não existe.');
+  if (String(status).toLowerCase() === 'inativo') {
+    // Permite salvar um produto que já estava nessa categoria antes de ela ser inativada.
+    if (currentProductId) {
+      const current = await new sql.Request(transaction)
+        .input('id', sql.UniqueIdentifier, currentProductId)
+        .query('SELECT categoriaId FROM dbo.produtos WHERE id = @id');
+      if (Number(current.recordset[0]?.categoriaId) === categoriaId) return categoriaId;
+    }
+    throw conflict('A categoria selecionada está inativa.');
+  }
+  return categoriaId;
+}
+
+// Código do produto: obrigatório e sem repetição (ignora espaços nas pontas e
+// maiúsculas/minúsculas, conforme a collation do banco).
+async function validateProdutoCodigo(transaction, value, currentProductId = null) {
+  const codigo = value == null ? '' : String(value).trim();
+  if (!codigo) throw badRequest('Informe o código do produto.');
+  if (codigo.length > 60) throw badRequest('O código do produto excede 60 caracteres.');
+  const result = await new sql.Request(transaction)
+    .input('codigo', sql.NVarChar(60), codigo)
+    .input('id', sql.UniqueIdentifier, currentProductId)
+    .query(`SELECT TOP (1) nome FROM dbo.produtos WITH (UPDLOCK, HOLDLOCK)
+            WHERE LTRIM(RTRIM(produtoId)) = @codigo AND (@id IS NULL OR id <> @id)`);
+  const existente = result.recordset[0];
+  if (existente) {
+    throw conflict(`Já existe um produto com o código ${codigo} (${existente.nome}). Use outro código.`);
+  }
+  return codigo;
+}
+
 async function createRow(pool, route, body) {
   const definition = tables[route];
   if (!definition) throw notFound('Rota não encontrada.');
+  ensureWritableRoute(definition);
   if (!isObject(body)) throw badRequest('O corpo da requisição deve ser um objeto JSON.');
   if (route === 'pedidos' || route === 'itens') {
     throw conflict('Pedidos e itens devem ser criados pelo fluxo de vendas para preservar o estoque e os preços.');
   }
   if (route === 'carcacaOrdens' || route === 'carcacaOrdemItens') {
     throw conflict('Apontamentos de carcaças e seus itens devem ser criados pelo fluxo de apontamentos.');
+  }
+  if (route === 'cargas') {
+    throw conflict('Movimentos de carga e descarga devem ser salvos pelo fluxo próprio, com os produtos.');
   }
 
   const fields = definition.columns.filter((column) => !column.readOnly && Object.prototype.hasOwnProperty.call(body, column.name));
@@ -182,6 +239,16 @@ async function createRow(pool, route, body) {
   try {
     if (route === 'cargas' && Object.prototype.hasOwnProperty.call(body, 'pedidoId')) {
       await validateCargaPedido(transaction, body.pedidoId);
+    }
+    if (route === 'produtos') {
+      body.produtoId = await validateProdutoCodigo(transaction, body.produtoId);
+      if (!fields.some((field) => field.name === 'produtoId')) {
+        fields.push(definition.columns.find((column) => column.name === 'produtoId'));
+      }
+      body.categoriaId = await validateProdutoCategoria(transaction, body.categoriaId);
+      if (!fields.some((field) => field.name === 'categoriaId')) {
+        fields.push(definition.columns.find((column) => column.name === 'categoriaId'));
+      }
     }
     const request = new sql.Request(transaction);
     for (const field of fields) bindColumn(request, field, body[field.name]);
@@ -412,6 +479,7 @@ function isSaleCompleted(status) {
 async function updateRow(pool, route, id, body) {
   const definition = tables[route];
   if (!definition) throw notFound('Rota não encontrada.');
+  ensureWritableRoute(definition);
   if (!isObject(body)) throw badRequest('O corpo da requisição deve ser um objeto JSON.');
   const validId = parseGuid(id, 'Identificador');
 
@@ -420,6 +488,15 @@ async function updateRow(pool, route, id, body) {
   try {
     if (route === 'cargas' && Object.prototype.hasOwnProperty.call(body, 'pedidoId')) {
       await validateCargaPedido(transaction, body.pedidoId, validId);
+    }
+    if (route === 'cargas') {
+      throw conflict('Movimentos de carga e descarga devem ser salvos pelo fluxo próprio, com os produtos.');
+    }
+    if (route === 'produtos' && Object.prototype.hasOwnProperty.call(body, 'produtoId')) {
+      body.produtoId = await validateProdutoCodigo(transaction, body.produtoId, validId);
+    }
+    if (route === 'produtos' && Object.prototype.hasOwnProperty.call(body, 'categoriaId')) {
+      body.categoriaId = await validateProdutoCategoria(transaction, body.categoriaId, validId);
     }
     let previousOrderStatus = null;
     if (route === 'pedidos') {
@@ -468,6 +545,7 @@ async function updateRow(pool, route, id, body) {
 async function deleteRow(pool, route, id) {
   const definition = tables[route];
   if (!definition) throw notFound('Rota não encontrada.');
+  ensureWritableRoute(definition);
   const validId = parseGuid(id, 'Identificador');
   const transaction = new sql.Transaction(pool);
   await transaction.begin(sql.ISOLATION_LEVEL.READ_COMMITTED);
@@ -479,6 +557,14 @@ async function deleteRow(pool, route, id) {
       const status = existing.recordset[0]?.status;
       if (status == null) throw notFound('Pedido não encontrado.');
       if (isSaleCompleted(status)) await adjustOrderStock(transaction, validId, false);
+    }
+    if (route === 'cargas') {
+      const existing = await new sql.Request(transaction)
+        .input('id', sql.UniqueIdentifier, validId)
+        .query('SELECT tipo, estoqueMovimentado FROM dbo.cargas WITH (UPDLOCK, HOLDLOCK) WHERE id = @id');
+      const carga = existing.recordset[0];
+      if (!carga) throw notFound('Movimento não encontrado.');
+      if (carga.estoqueMovimentado) await revertCargaStock(transaction, validId, carga.tipo);
     }
     if (route === 'carcacaOrdens') {
       const existing = await new sql.Request(transaction)
@@ -575,7 +661,10 @@ async function createOrUpdateCarcacaOrdem(pool, body, existingOrdemId = null) {
       if (quantity < 1) throw conflict('Cada carcaça deve ter uma quantidade inteira maior que zero.');
       const productResult = await new sql.Request(transaction)
         .input('id', sql.UniqueIdentifier, productRef)
-        .query("SELECT produtoId, nome, medida, custo, categoria FROM dbo.produtos WHERE id = @id AND status <> N'Inativo'");
+        .query(`SELECT p.produtoId, p.nome, p.medida, p.custo, COALESCE(pc.nome, p.categoria) AS categoria
+                FROM dbo.produtos p
+                LEFT JOIN dbo.produtoCategoria pc ON pc.id = p.categoriaId
+                WHERE p.id = @id AND p.status <> N'Inativo'`);
       const product = productResult.recordset[0];
       if (!product) throw conflict('Uma das carcaças selecionadas não existe ou está inativa.');
       if (!['carcaca', 'carcacas'].includes(normalizeCarcacaCategoria(product.categoria))) {
@@ -655,6 +744,203 @@ async function createOrUpdateCarcacaOrdem(pool, body, existingOrdemId = null) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Carga e descarga com vários produtos e movimentação de estoque.
+// Regra: descarga = entrada; carga = saída. Carga vinculada a uma venda NÃO
+// movimenta, porque o estoque dessa venda já foi baixado no faturamento.
+// O campo estoqueMovimentado guarda se aquele movimento alterou o estoque,
+// para desfazer corretamente ao editar ou excluir.
+// ---------------------------------------------------------------------------
+const CARGA_TIPOS = ['carga', 'descarga'];
+const CARGA_STATUS = ['aguardando', 'conferida', 'saiu', 'divergente'];
+
+function cargaMovimentaEstoque(tipo, pedidoId) {
+  return tipo === 'descarga' || (tipo === 'carga' && !pedidoId);
+}
+
+async function ensureStockRow(transaction, productRef) {
+  await new sql.Request(transaction)
+    .input('id', sql.UniqueIdentifier, productRef)
+    .query(`IF NOT EXISTS (SELECT 1 FROM dbo.estoque WHERE produtoRef = @id)
+              INSERT INTO dbo.estoque (produtoRef, produtoId, item, medida, tipo, qtd, minimo)
+              SELECT p.id, p.produtoId, p.nome, p.medida, N'produto', 0, 0 FROM dbo.produtos p WHERE p.id = @id;`);
+}
+
+// delta > 0 soma no estoque; delta < 0 subtrai (bloqueando saldo negativo).
+async function changeStock(transaction, productRef, delta, label, { skipMissing = false, reverting = false } = {}) {
+  if (!delta) return;
+  if (delta > 0) {
+    await ensureStockRow(transaction, productRef);
+    const outcome = await new sql.Request(transaction)
+      .input('qtd', sql.Int, delta)
+      .input('produto', sql.UniqueIdentifier, productRef)
+      .query('UPDATE dbo.estoque SET qtd = qtd + @qtd WHERE produtoRef = @produto');
+    if (outcome.rowsAffected[0] !== 1 && !skipMissing) throw conflict(`Produto ${label} não encontrado no estoque.`);
+    return;
+  }
+  const quantity = -delta;
+  const outcome = await new sql.Request(transaction)
+    .input('qtd', sql.Int, quantity)
+    .input('produto', sql.UniqueIdentifier, productRef)
+    .query('UPDATE dbo.estoque SET qtd = qtd - @qtd WHERE produtoRef = @produto AND qtd >= @qtd');
+  if (outcome.rowsAffected[0] === 1) return;
+  const exists = await new sql.Request(transaction)
+    .input('produto', sql.UniqueIdentifier, productRef)
+    .query('SELECT qtd FROM dbo.estoque WHERE produtoRef = @produto');
+  const row = exists.recordset[0];
+  if (!row && skipMissing) return;
+  if (!row) throw conflict(`Produto ${label} não encontrado no estoque.`);
+  throw conflict(reverting
+    ? `Não é possível desfazer o movimento: o estoque de ${label} tem ${row.qtd} un. e seriam retiradas ${quantity}.`
+    : `Estoque insuficiente para ${label}: disponível ${row.qtd} un., solicitado ${quantity}.`);
+}
+
+async function revertCargaStock(transaction, cargaId, tipo) {
+  const result = await new sql.Request(transaction)
+    .input('id', sql.UniqueIdentifier, cargaId)
+    .query(`SELECT produtoRef, MAX(COALESCE(item, produtoId, N'')) AS item, SUM(qtd) AS quantidade
+            FROM dbo.carga_itens WHERE cargaId = @id AND produtoRef IS NOT NULL
+            GROUP BY produtoRef`);
+  const sign = String(tipo || '').toLowerCase() === 'descarga' ? -1 : 1; // desfaz o efeito original
+  for (const row of result.recordset) {
+    await changeStock(transaction, row.produtoRef, sign * Number(row.quantidade), row.item || 'produto', { skipMissing: true, reverting: true });
+  }
+}
+
+async function createOrUpdateCarga(pool, body, existingCargaId = null) {
+  if (!isObject(body)) throw badRequest('O corpo do movimento deve ser um objeto JSON.');
+  const tipo = getText(body, 'tipo').toLowerCase();
+  if (!CARGA_TIPOS.includes(tipo)) throw conflict('Selecione o tipo do movimento (carga ou descarga).');
+  const data = parseDate(body.data || localToday(), 'Data');
+  const status = getText(body, 'status').toLowerCase();
+  if (status && !CARGA_STATUS.includes(status)) throw conflict('Status do movimento inválido.');
+  const header = {
+    motorista: getText(body, 'motorista'),
+    funcionario: getText(body, 'funcionario'),
+    transportadora: getText(body, 'transportadora'),
+    nf: getText(body, 'nf')
+  };
+  for (const [name, size] of [['motorista', 100], ['funcionario', 100], ['transportadora', 150], ['nf', 30]]) {
+    if (header[name].length > size) throw badRequest(`O campo ${name} excede ${size} caracteres.`);
+  }
+  const pedidoId = parseGuid(body.pedidoId, 'Venda');
+
+  if (!Array.isArray(body.itens) || body.itens.length === 0) {
+    throw conflict('Selecione ao menos um produto para o movimento.');
+  }
+  // Soma quantidades repetidas do mesmo produto.
+  const requested = new Map();
+  for (const item of body.itens) {
+    const productRef = parseGuid(item?.produtoRef, 'Produto');
+    if (!productRef) throw conflict('Um dos produtos do movimento não é válido.');
+    const quantity = parseNumber(item.qtd, 'Quantidade', { integer: true });
+    if (quantity < 1) throw conflict('Cada produto deve ter uma quantidade inteira maior que zero.');
+    const key = productRef.toLowerCase();
+    requested.set(key, { productRef, quantity: (requested.get(key)?.quantity || 0) + quantity });
+  }
+
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin(sql.ISOLATION_LEVEL.READ_COMMITTED);
+  try {
+    const previousRefs = new Set();
+    if (existingCargaId) {
+      const existing = await new sql.Request(transaction)
+        .input('id', sql.UniqueIdentifier, existingCargaId)
+        .query('SELECT tipo, estoqueMovimentado FROM dbo.cargas WITH (UPDLOCK, HOLDLOCK) WHERE id = @id');
+      const carga = existing.recordset[0];
+      if (!carga) throw notFound('O movimento não foi encontrado.');
+      const previousItems = await new sql.Request(transaction)
+        .input('id', sql.UniqueIdentifier, existingCargaId)
+        .query('SELECT produtoRef FROM dbo.carga_itens WHERE cargaId = @id');
+      previousItems.recordset.forEach((row) => row.produtoRef && previousRefs.add(String(row.produtoRef).toLowerCase()));
+      // Desfaz o efeito anterior no estoque antes de aplicar o novo.
+      if (carga.estoqueMovimentado) await revertCargaStock(transaction, existingCargaId, carga.tipo);
+      await new sql.Request(transaction)
+        .input('id', sql.UniqueIdentifier, existingCargaId)
+        .query('DELETE FROM dbo.carga_itens WHERE cargaId = @id');
+    }
+    if (pedidoId) await validateCargaPedido(transaction, pedidoId, existingCargaId);
+
+    const normalizedItems = [];
+    for (const { productRef, quantity } of requested.values()) {
+      const productResult = await new sql.Request(transaction)
+        .input('id', sql.UniqueIdentifier, productRef)
+        .query('SELECT produtoId, nome, medida, status FROM dbo.produtos WHERE id = @id');
+      const product = productResult.recordset[0];
+      if (!product) throw conflict('Um dos produtos selecionados não existe mais.');
+      if (String(product.status || '').toLowerCase() === 'inativo' && !previousRefs.has(productRef.toLowerCase())) {
+        throw conflict(`O produto ${product.nome} está inativo.`);
+      }
+      normalizedItems.push({ productRef, quantity, code: product.produtoId || '', name: product.nome || '', measure: product.medida || '' });
+    }
+    const totalQuantity = normalizedItems.reduce((sum, item) => sum + item.quantity, 0);
+    const movimenta = cargaMovimentaEstoque(tipo, pedidoId);
+
+    const request = new sql.Request(transaction)
+      .input('tipo', sql.NVarChar(20), tipo)
+      .input('data', sql.Date, data)
+      .input('motorista', sql.NVarChar(100), header.motorista)
+      .input('funcionario', sql.NVarChar(100), header.funcionario)
+      .input('transportadora', sql.NVarChar(150), header.transportadora)
+      .input('nf', sql.NVarChar(30), header.nf)
+      .input('pedidoId', sql.UniqueIdentifier, pedidoId)
+      .input('qtd', sql.Int, totalQuantity)
+      .input('status', sql.NVarChar(30), status || null)
+      .input('movimentado', sql.Bit, movimenta);
+    let cargaId;
+    if (existingCargaId) {
+      request.input('id', sql.UniqueIdentifier, existingCargaId);
+      await request.query(`UPDATE dbo.cargas
+        SET tipo=@tipo, data=@data, motorista=@motorista, funcionario=@funcionario, transportadora=@transportadora,
+            nf=@nf, pedidoId=@pedidoId, qtd=@qtd, status=@status, estoqueMovimentado=@movimentado
+        WHERE id=@id`);
+      cargaId = existingCargaId;
+    } else {
+      const inserted = await request.query(`INSERT INTO dbo.cargas
+          (tipo, data, motorista, funcionario, transportadora, nf, pedidoId, qtd, status, estoqueMovimentado)
+        OUTPUT inserted.id
+        VALUES (@tipo, @data, @motorista, @funcionario, @transportadora, @nf, @pedidoId, @qtd, @status, @movimentado)`);
+      cargaId = inserted.recordset[0].id;
+    }
+
+    for (const item of normalizedItems) {
+      await new sql.Request(transaction)
+        .input('cargaId', sql.UniqueIdentifier, cargaId)
+        .input('produtoRef', sql.UniqueIdentifier, item.productRef)
+        .input('produtoId', sql.NVarChar(60), item.code)
+        .input('item', sql.NVarChar(200), item.name)
+        .input('medida', sql.NVarChar(60), item.measure)
+        .input('qtd', sql.Int, item.quantity)
+        .query(`INSERT INTO dbo.carga_itens (cargaId, produtoRef, produtoId, item, medida, qtd)
+                VALUES (@cargaId, @produtoRef, @produtoId, @item, @medida, @qtd)`);
+      if (movimenta) {
+        await changeStock(transaction, item.productRef, tipo === 'descarga' ? item.quantity : -item.quantity, item.name);
+      }
+    }
+
+    await transaction.commit();
+    return { id: String(cargaId), totalPecas: totalQuantity, estoqueMovimentado: movimenta };
+  } catch (error) {
+    await transaction.rollback().catch(() => {});
+    throw error;
+  }
+}
+
+async function getCarcacaOrdemForPdf(pool, id) {
+  const validId = parseGuid(id, 'Identificador do apontamento');
+  const ordemResult = await pool.request()
+    .input('id', sql.UniqueIdentifier, validId)
+    .query(`SELECT numero, CONVERT(nvarchar(10), data, 23) AS data, dono, origem, status, obs, total
+            FROM dbo.carcaca_ordens WHERE id = @id`);
+  const ordem = ordemResult.recordset[0];
+  if (!ordem) throw notFound('Apontamento não encontrado.');
+  const itensResult = await pool.request()
+    .input('id', sql.UniqueIdentifier, validId)
+    .query(`SELECT produtoId, item, medida, qtd, valorUnitario, valorTotal
+            FROM dbo.carcaca_ordem_itens WHERE ordemId = @id ORDER BY criadoEm, id`);
+  return { ...ordem, itens: itensResult.recordset };
+}
+
 module.exports = {
   getAllData,
   createRow,
@@ -662,7 +948,9 @@ module.exports = {
   deleteRow,
   createOrUpdateSale,
   createOrUpdateCarcacaOrdem,
+  createOrUpdateCarga,
   getOrderForPdf,
+  getCarcacaOrdemForPdf,
   parseGuid,
   normalizeSaleUnitPrice
 };

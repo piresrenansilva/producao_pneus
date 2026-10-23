@@ -27,6 +27,14 @@ function render() {
     const [kind, id] = b.dataset.edit.split(":");
     openForm(kind, db[kind].find((row) => row.id === id));
   });
+  view.querySelectorAll("[data-pdf-carcaca]").forEach((b) => b.onclick = async () => {
+    const textoOriginal = b.textContent;
+    b.disabled = true;
+    b.textContent = "Gerando PDF...";
+    try { await baixarArquivo(`/api/carcaca-ordens/${b.dataset.pdfCarcaca}/pdf`, "apontamento.pdf"); }
+    catch (error) { toast(`Não foi possível gerar o PDF: ${error.message}`, "bad"); }
+    finally { b.disabled = false; b.textContent = textoOriginal; }
+  });
   view.querySelectorAll("[data-del]").forEach((b) => b.onclick = () => {
     const [kind, id] = b.dataset.del.split(":");
     removeRow(kind, id);
@@ -67,7 +75,7 @@ const views = {
   produtos() {
     const busca = normalizarBuscaEntidade(query);
     const produtos = db.produtos.filter((produto) => !busca || normalizarBuscaEntidade([
-      produto.produtoId, produto.nome, produto.categoria, produto.medida, produto.status
+      produto.produtoId, produto.nome, produto.categoria, produto.modelo, produto.medida, produto.status
     ].join(" ")).includes(busca));
     const ativos = db.produtos.filter((produto) => String(produto.status || "").toLowerCase() !== "inativo").length;
     const estoqueLocalTotal = db.produtos.reduce((soma, produto) => soma + estoqueLocal(produto), 0);
@@ -78,14 +86,14 @@ const views = {
           </div>
     <section class="card produto-admin">
       <div class="produto-admin-toolbar">
-        <label>Pesquisar produto<input id="q" type="search" placeholder="Nome, código, categoria ou medida" value="${escapeAttr(query)}"></label>
+        <label>Pesquisar produto<input id="q" type="search" placeholder="Nome, código, categoria, modelo ou medida" value="${escapeAttr(query)}"></label>
         <span>${produtos.length} de ${db.produtos.length} produtos</span>
       </div>
       <div class="produto-admin-grid">${produtos.length ? produtos.map((produto) => {
         const estoque = estoqueLocal(produto);
         return `<article class="produto-admin-card">
           <div class="produto-admin-topo"><span class="produto-codigo">${escapeHtml(produto.produtoId || "Sem código")}</span>${badge(produto.status)}</div>
-          <div class="produto-admin-info"><h2>${escapeHtml(produto.nome)}</h2><p>${escapeHtml([produto.categoria, produto.medida].filter(Boolean).join(" · ") || "Produto sem categoria ou medida")}</p></div>
+          <div class="produto-admin-info"><h2>${escapeHtml(produto.nome)}</h2><p>${escapeHtml([produto.categoria, produto.modelo, produto.medida].filter(Boolean).join(" · ") || "Produto sem categoria ou medida")}</p></div>
           <div class="produto-admin-preco"><span>Preço de venda</span><strong>${money(produto.preco)}</strong></div>
           <div class="produto-admin-estoque">
             <div><span>Estoque local</span><strong class="${estoque > 0 ? "ok" : "warn"}">${estoque} <small>un.</small></strong></div>
@@ -137,7 +145,7 @@ const views = {
             <td>${money(item.valorTotal !== "" && item.valorTotal != null ? item.valorTotal : (Number(item.qtd) || 0) * (Number(item.valorUnitario) || 0))}</td>
           </tr>`).join("")}</tbody></table></div>
         </details>
-        <div class="produto-admin-acoes">${registrado
+        <div class="produto-admin-acoes"><button class="btn ghost small" type="button" data-pdf-carcaca="${escapeAttr(ordem.id)}">Baixar PDF</button>${registrado
           ? `<button class="btn ghost small" type="button" data-edit="carcacaOrdens:${escapeHtml(ordem.id)}">Editar</button><button class="btn danger small" type="button" data-del="carcacaOrdens:${escapeHtml(ordem.id)}">Excluir</button>`
           : `<span class="hint">Apontamento conferido — somente leitura.</span>`}</div>
       </section>`;
@@ -150,12 +158,20 @@ const views = {
     return [escapeHtml(r.produtoId || produto?.produtoId || ""), escapeHtml(produto?.nome || r.item || ""), escapeHtml(r.medida || produto?.medida || ""), r.qtd, r.minimo];
   }); },
   producao() { return table("producao", ["Data", "Turno", "Medida", "Qtd", "Operador", "Status"], (r) => [br(r.data), escapeHtml(r.turno), escapeHtml(r.medida), r.qtd, escapeHtml(r.operador), badge(r.status)]); },
-  cargas() { return table("cargas", ["Tipo", "Data", "Venda", "Cliente", "Peças", "Motorista", "Funcionário", "Status"], (r) => {
+  cargas() { return table("cargas", ["Tipo", "Data", "Venda", "Cliente", "Produtos", "Peças", "Estoque", "Motorista", "Funcionário", "Status"], (r) => {
     const venda = db.pedidos.find((pedido) => sameId(pedido.id, r.pedidoId));
     const cliente = venda?.cliente || db.clientes.find((item) => sameId(item.id, venda?.clienteId))?.nome || "—";
+    const itens = Array.isArray(r.itens) ? r.itens : [];
+    const pecas = itens.length ? itens.reduce((soma, item) => soma + (Number(item.qtd) || 0), 0) : (venda ? totalPecasPedido(venda) : "—");
+    const produtos = itens.length
+      ? `<span title="${escapeAttr(itens.map((item) => `${item.qtd}× ${item.item || item.produtoId || "Produto"}`).join("\n"))}">${itens.length} ${itens.length === 1 ? "produto" : "produtos"}</span>`
+      : "—";
+    const estoque = r.estoqueMovimentado === true || r.estoqueMovimentado === 1
+      ? (String(r.tipo).toLowerCase() === "descarga" ? "Entrada" : "Saída")
+      : "—";
     return [
       escapeHtml(r.tipo), br(r.data), escapeHtml(venda?.numero || "—"), escapeHtml(cliente),
-      venda ? totalPecasPedido(venda) : "—", escapeHtml(r.motorista), escapeHtml(r.funcionario), badge(r.status)
+      produtos, pecas, estoque, escapeHtml(r.motorista), escapeHtml(r.funcionario), badge(r.status)
     ];
   }); },
   vendas() {

@@ -1,0 +1,1013 @@
+--- a/schema.sql
++++ b/schema.sql
+@@ -163,7 +163,8 @@
+     nf            nvarchar(30)  NULL,
+     qtd           int           NOT NULL CONSTRAINT DF_cargas_qtd DEFAULT 0,
+     item          nvarchar(200) NULL,
+-    status        nvarchar(30)  NULL
++    status        nvarchar(30)  NULL,
++    estoqueMovimentado bit      NOT NULL CONSTRAINT DF_cargas_estoqueMovimentado DEFAULT 0
+ );
+ GO
+ 
+@@ -317,3 +318,19 @@
+     valorTotal    decimal(12, 2)   NOT NULL CONSTRAINT DF_carcaca_ordem_itens_valorTotal DEFAULT 0
+ );
+ GO
++
++-- Itens (produtos) de cada movimento de carga/descarga. A descarga dá entrada
++-- no estoque e a carga dá saída (exceto carga vinculada a venda, cuja baixa já
++-- acontece no faturamento). produtoId/item/medida guardam uma cópia do cadastro.
++IF OBJECT_ID('dbo.carga_itens', 'U') IS NULL
++CREATE TABLE dbo.carga_itens (
++    id         uniqueidentifier NOT NULL CONSTRAINT DF_carga_itens_id DEFAULT NEWID() CONSTRAINT PK_carga_itens PRIMARY KEY,
++    criadoEm   datetime2        NOT NULL CONSTRAINT DF_carga_itens_criadoEm DEFAULT SYSDATETIME(),
++    cargaId    uniqueidentifier NOT NULL CONSTRAINT FK_carga_itens_carga REFERENCES dbo.cargas (id) ON DELETE CASCADE,
++    produtoRef uniqueidentifier NULL,
++    produtoId  nvarchar(60)     NULL,
++    item       nvarchar(200)    NULL,
++    medida     nvarchar(60)     NULL,
++    qtd        int              NOT NULL CONSTRAINT DF_carga_itens_qtd DEFAULT 0
++);
++GO
+--- a/server.js
++++ b/server.js
+@@ -20,9 +20,10 @@
+   deleteRow,
+   createOrUpdateSale,
+   createOrUpdateCarcacaOrdem,
++  createOrUpdateCarga,
+   parseGuid
+ } = require('./src/operations');
+-const { createOrderPdf } = require('./src/pdf');
++const { createOrderPdf, createCarcacaOrdemPdf } = require('./src/pdf');
+ 
+ if (!process.env.JWT_KEY) {
+   if (process.env.NODE_ENV === 'production') {
+@@ -195,6 +196,23 @@
+   res.json(await createOrUpdateCarcacaOrdem(pool, req.body, id));
+ }));
+ 
++app.get('/api/carcaca-ordens/:id/pdf', asyncRoute(async (req, res) => {
++  const pdf = await createCarcacaOrdemPdf(pool, req.params.id);
++  res.setHeader('Content-Type', 'application/pdf');
++  res.setHeader('Content-Disposition', `attachment; filename="${pdf.filename}"`);
++  res.setHeader('Content-Length', pdf.buffer.length);
++  res.send(pdf.buffer);
++}));
++
++// Carga e descarga com vários produtos (movimenta o estoque).
++app.post('/api/cargas', asyncRoute(async (req, res) => {
++  res.json(await createOrUpdateCarga(pool, req.body));
++}));
++app.put('/api/cargas/:id', asyncRoute(async (req, res) => {
++  const id = parseGuid(req.params.id, 'Identificador do movimento');
++  res.json(await createOrUpdateCarga(pool, req.body, id));
++}));
++
+ app.get('/api/pedidos/:id/pdf', asyncRoute(async (req, res) => {
+   const pdf = await createOrderPdf(pool, req.params.id);
+   res.setHeader('Content-Type', 'application/pdf');
+--- a/src/database.js
++++ b/src/database.js
+@@ -235,6 +235,18 @@
+         OR (pc.nome COLLATE Latin1_General_CI_AI = N'Carcaca'
+             AND LTRIM(RTRIM(p.categoria)) COLLATE Latin1_General_CI_AI = N'Carcacas')
+       WHERE p.categoriaId IS NULL AND p.categoria IS NOT NULL;`,
++    String.raw`IF COL_LENGTH('dbo.cargas', 'estoqueMovimentado') IS NULL
++      ALTER TABLE dbo.cargas ADD estoqueMovimentado bit NOT NULL
++        CONSTRAINT DF_cargas_estoqueMovimentado DEFAULT (0) WITH VALUES;`,
++    // Código do produto único (ignora vazios). Só cria o índice se não houver
++    // códigos repetidos já gravados; nesse caso o servidor avisa no console.
++    String.raw`IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.produtos') AND name = 'UX_produtos_produtoId')
++      AND NOT EXISTS (
++        SELECT 1 FROM dbo.produtos
++        WHERE produtoId IS NOT NULL AND produtoId <> N''
++        GROUP BY produtoId HAVING COUNT(*) > 1)
++      CREATE UNIQUE INDEX UX_produtos_produtoId ON dbo.produtos (produtoId)
++        WHERE produtoId IS NOT NULL AND produtoId <> N'';`,
+     String.raw`IF COL_LENGTH('dbo.carcacas', 'valorUnitario') IS NULL
+       ALTER TABLE dbo.carcacas ADD valorUnitario decimal(12, 2) NOT NULL
+         CONSTRAINT DF_carcacas_valorUnitario DEFAULT (0) WITH VALUES;`
+@@ -245,6 +257,20 @@
+   }
+ }
+ 
++async function warnDuplicateProductCodes(pool) {
++  const result = await pool.request().query(`
++    SELECT produtoId, COUNT(*) AS quantidade
++    FROM dbo.produtos
++    WHERE produtoId IS NOT NULL AND produtoId <> N''
++    GROUP BY produtoId HAVING COUNT(*) > 1
++    ORDER BY produtoId`);
++  if (!result.recordset.length) return;
++  const lista = result.recordset.map((row) => `${row.produtoId} (${row.quantidade}x)`).join(', ');
++  console.warn(`AVISO: existem códigos de produto repetidos: ${lista}. Corrija-os na aba Produtos; `
++    + 'o índice único do código será criado automaticamente na próxima inicialização. '
++    + 'Novos cadastros com código repetido já são bloqueados.');
++}
++
+ async function initializeDatabase() {
+   const dbName = process.env.DB_NAME || 'FabricaPneus2';
+   if (!/^[A-Za-z0-9_ -]{1,128}$/.test(dbName)) {
+@@ -274,6 +300,7 @@
+       }
+     }
+     await executeMigrations(pool);
++    await warnDuplicateProductCodes(pool);
+     return pool;
+   } catch (error) {
+     await pool.close().catch(() => {});
+--- a/src/definitions.js
++++ b/src/definitions.js
+@@ -53,7 +53,13 @@
+     table: 'cargas',
+     // Mantemos os campos antigos placa/parceiro/qtd/item para ler registros legados,
+     // mas a interface nova usa funcionário, transportadora e o vínculo com a venda.
+-    columns: [S('tipo', 20), T('data'), S('placa', 20), S('motorista', 100), S('funcionario', 100), S('transportadora', 150), G('pedidoId'), S('parceiro', 150), S('nf', 30), I('qtd'), S('item', 200), S('status', 30)]
++    // Criação/edição passam pelo fluxo próprio (/api/cargas), que grava os itens e movimenta o estoque.
++    columns: [S('tipo', 20), T('data'), S('placa', 20), S('motorista', 100), S('funcionario', 100), S('transportadora', 150), G('pedidoId'), S('parceiro', 150), S('nf', 30), I('qtd'), S('item', 200), S('status', 30), RO('estoqueMovimentado', 'b')]
++  },
++  cargaItens: {
++    table: 'carga_itens',
++    readOnlyRoute: true,
++    columns: [G('cargaId'), G('produtoRef'), S('produtoId', 60), S('item', 200), S('medida', 60), I('qtd')]
+   },
+   pedidos: {
+     table: 'pedidos',
+--- a/src/operations.js
++++ b/src/operations.js
+@@ -121,12 +121,13 @@
+ 
+ async function getAllData(pool) {
+   const data = {};
+-  const embedOnly = new Set(['itens', 'carcacaOrdemItens']);
++  const embedOnly = new Set(['itens', 'carcacaOrdemItens', 'cargaItens']);
+   for (const [route, definition] of Object.entries(tables)) {
+     if (!embedOnly.has(route)) data[route] = await readTable(pool, definition);
+   }
+   embedItems(data.pedidos, await readTable(pool, tables.itens), 'pedidoId');
+   embedItems(data.carcacaOrdens, await readTable(pool, tables.carcacaOrdemItens), 'ordemId');
++  embedItems(data.cargas, await readTable(pool, tables.cargaItens), 'cargaId');
+   return data;
+ }
+ 
+@@ -197,6 +198,24 @@
+   return categoriaId;
+ }
+ 
++// Código do produto: obrigatório e sem repetição (ignora espaços nas pontas e
++// maiúsculas/minúsculas, conforme a collation do banco).
++async function validateProdutoCodigo(transaction, value, currentProductId = null) {
++  const codigo = value == null ? '' : String(value).trim();
++  if (!codigo) throw badRequest('Informe o código do produto.');
++  if (codigo.length > 60) throw badRequest('O código do produto excede 60 caracteres.');
++  const result = await new sql.Request(transaction)
++    .input('codigo', sql.NVarChar(60), codigo)
++    .input('id', sql.UniqueIdentifier, currentProductId)
++    .query(`SELECT TOP (1) nome FROM dbo.produtos WITH (UPDLOCK, HOLDLOCK)
++            WHERE LTRIM(RTRIM(produtoId)) = @codigo AND (@id IS NULL OR id <> @id)`);
++  const existente = result.recordset[0];
++  if (existente) {
++    throw conflict(`Já existe um produto com o código ${codigo} (${existente.nome}). Use outro código.`);
++  }
++  return codigo;
++}
++
+ async function createRow(pool, route, body) {
+   const definition = tables[route];
+   if (!definition) throw notFound('Rota não encontrada.');
+@@ -208,6 +227,9 @@
+   if (route === 'carcacaOrdens' || route === 'carcacaOrdemItens') {
+     throw conflict('Apontamentos de carcaças e seus itens devem ser criados pelo fluxo de apontamentos.');
+   }
++  if (route === 'cargas') {
++    throw conflict('Movimentos de carga e descarga devem ser salvos pelo fluxo próprio, com os produtos.');
++  }
+ 
+   const fields = definition.columns.filter((column) => !column.readOnly && Object.prototype.hasOwnProperty.call(body, column.name));
+   if (fields.length === 0) throw badRequest('Informe ao menos um campo para salvar.');
+@@ -219,6 +241,10 @@
+       await validateCargaPedido(transaction, body.pedidoId);
+     }
+     if (route === 'produtos') {
++      body.produtoId = await validateProdutoCodigo(transaction, body.produtoId);
++      if (!fields.some((field) => field.name === 'produtoId')) {
++        fields.push(definition.columns.find((column) => column.name === 'produtoId'));
++      }
+       body.categoriaId = await validateProdutoCategoria(transaction, body.categoriaId);
+       if (!fields.some((field) => field.name === 'categoriaId')) {
+         fields.push(definition.columns.find((column) => column.name === 'categoriaId'));
+@@ -463,6 +489,12 @@
+     if (route === 'cargas' && Object.prototype.hasOwnProperty.call(body, 'pedidoId')) {
+       await validateCargaPedido(transaction, body.pedidoId, validId);
+     }
++    if (route === 'cargas') {
++      throw conflict('Movimentos de carga e descarga devem ser salvos pelo fluxo próprio, com os produtos.');
++    }
++    if (route === 'produtos' && Object.prototype.hasOwnProperty.call(body, 'produtoId')) {
++      body.produtoId = await validateProdutoCodigo(transaction, body.produtoId, validId);
++    }
+     if (route === 'produtos' && Object.prototype.hasOwnProperty.call(body, 'categoriaId')) {
+       body.categoriaId = await validateProdutoCategoria(transaction, body.categoriaId, validId);
+     }
+@@ -526,6 +558,14 @@
+       if (status == null) throw notFound('Pedido não encontrado.');
+       if (isSaleCompleted(status)) await adjustOrderStock(transaction, validId, false);
+     }
++    if (route === 'cargas') {
++      const existing = await new sql.Request(transaction)
++        .input('id', sql.UniqueIdentifier, validId)
++        .query('SELECT tipo, estoqueMovimentado FROM dbo.cargas WITH (UPDLOCK, HOLDLOCK) WHERE id = @id');
++      const carga = existing.recordset[0];
++      if (!carga) throw notFound('Movimento não encontrado.');
++      if (carga.estoqueMovimentado) await revertCargaStock(transaction, validId, carga.tipo);
++    }
+     if (route === 'carcacaOrdens') {
+       const existing = await new sql.Request(transaction)
+         .input('id', sql.UniqueIdentifier, validId)
+@@ -704,6 +744,203 @@
+   }
+ }
+ 
++// ---------------------------------------------------------------------------
++// Carga e descarga com vários produtos e movimentação de estoque.
++// Regra: descarga = entrada; carga = saída. Carga vinculada a uma venda NÃO
++// movimenta, porque o estoque dessa venda já foi baixado no faturamento.
++// O campo estoqueMovimentado guarda se aquele movimento alterou o estoque,
++// para desfazer corretamente ao editar ou excluir.
++// ---------------------------------------------------------------------------
++const CARGA_TIPOS = ['carga', 'descarga'];
++const CARGA_STATUS = ['aguardando', 'conferida', 'saiu', 'divergente'];
++
++function cargaMovimentaEstoque(tipo, pedidoId) {
++  return tipo === 'descarga' || (tipo === 'carga' && !pedidoId);
++}
++
++async function ensureStockRow(transaction, productRef) {
++  await new sql.Request(transaction)
++    .input('id', sql.UniqueIdentifier, productRef)
++    .query(`IF NOT EXISTS (SELECT 1 FROM dbo.estoque WHERE produtoRef = @id)
++              INSERT INTO dbo.estoque (produtoRef, produtoId, item, medida, tipo, qtd, minimo)
++              SELECT p.id, p.produtoId, p.nome, p.medida, N'produto', 0, 0 FROM dbo.produtos p WHERE p.id = @id;`);
++}
++
++// delta > 0 soma no estoque; delta < 0 subtrai (bloqueando saldo negativo).
++async function changeStock(transaction, productRef, delta, label, { skipMissing = false, reverting = false } = {}) {
++  if (!delta) return;
++  if (delta > 0) {
++    await ensureStockRow(transaction, productRef);
++    const outcome = await new sql.Request(transaction)
++      .input('qtd', sql.Int, delta)
++      .input('produto', sql.UniqueIdentifier, productRef)
++      .query('UPDATE dbo.estoque SET qtd = qtd + @qtd WHERE produtoRef = @produto');
++    if (outcome.rowsAffected[0] !== 1 && !skipMissing) throw conflict(`Produto ${label} não encontrado no estoque.`);
++    return;
++  }
++  const quantity = -delta;
++  const outcome = await new sql.Request(transaction)
++    .input('qtd', sql.Int, quantity)
++    .input('produto', sql.UniqueIdentifier, productRef)
++    .query('UPDATE dbo.estoque SET qtd = qtd - @qtd WHERE produtoRef = @produto AND qtd >= @qtd');
++  if (outcome.rowsAffected[0] === 1) return;
++  const exists = await new sql.Request(transaction)
++    .input('produto', sql.UniqueIdentifier, productRef)
++    .query('SELECT qtd FROM dbo.estoque WHERE produtoRef = @produto');
++  const row = exists.recordset[0];
++  if (!row && skipMissing) return;
++  if (!row) throw conflict(`Produto ${label} não encontrado no estoque.`);
++  throw conflict(reverting
++    ? `Não é possível desfazer o movimento: o estoque de ${label} tem ${row.qtd} un. e seriam retiradas ${quantity}.`
++    : `Estoque insuficiente para ${label}: disponível ${row.qtd} un., solicitado ${quantity}.`);
++}
++
++async function revertCargaStock(transaction, cargaId, tipo) {
++  const result = await new sql.Request(transaction)
++    .input('id', sql.UniqueIdentifier, cargaId)
++    .query(`SELECT produtoRef, MAX(COALESCE(item, produtoId, N'')) AS item, SUM(qtd) AS quantidade
++            FROM dbo.carga_itens WHERE cargaId = @id AND produtoRef IS NOT NULL
++            GROUP BY produtoRef`);
++  const sign = String(tipo || '').toLowerCase() === 'descarga' ? -1 : 1; // desfaz o efeito original
++  for (const row of result.recordset) {
++    await changeStock(transaction, row.produtoRef, sign * Number(row.quantidade), row.item || 'produto', { skipMissing: true, reverting: true });
++  }
++}
++
++async function createOrUpdateCarga(pool, body, existingCargaId = null) {
++  if (!isObject(body)) throw badRequest('O corpo do movimento deve ser um objeto JSON.');
++  const tipo = getText(body, 'tipo').toLowerCase();
++  if (!CARGA_TIPOS.includes(tipo)) throw conflict('Selecione o tipo do movimento (carga ou descarga).');
++  const data = parseDate(body.data || localToday(), 'Data');
++  const status = getText(body, 'status').toLowerCase();
++  if (status && !CARGA_STATUS.includes(status)) throw conflict('Status do movimento inválido.');
++  const header = {
++    motorista: getText(body, 'motorista'),
++    funcionario: getText(body, 'funcionario'),
++    transportadora: getText(body, 'transportadora'),
++    nf: getText(body, 'nf')
++  };
++  for (const [name, size] of [['motorista', 100], ['funcionario', 100], ['transportadora', 150], ['nf', 30]]) {
++    if (header[name].length > size) throw badRequest(`O campo ${name} excede ${size} caracteres.`);
++  }
++  const pedidoId = parseGuid(body.pedidoId, 'Venda');
++
++  if (!Array.isArray(body.itens) || body.itens.length === 0) {
++    throw conflict('Selecione ao menos um produto para o movimento.');
++  }
++  // Soma quantidades repetidas do mesmo produto.
++  const requested = new Map();
++  for (const item of body.itens) {
++    const productRef = parseGuid(item?.produtoRef, 'Produto');
++    if (!productRef) throw conflict('Um dos produtos do movimento não é válido.');
++    const quantity = parseNumber(item.qtd, 'Quantidade', { integer: true });
++    if (quantity < 1) throw conflict('Cada produto deve ter uma quantidade inteira maior que zero.');
++    const key = productRef.toLowerCase();
++    requested.set(key, { productRef, quantity: (requested.get(key)?.quantity || 0) + quantity });
++  }
++
++  const transaction = new sql.Transaction(pool);
++  await transaction.begin(sql.ISOLATION_LEVEL.READ_COMMITTED);
++  try {
++    const previousRefs = new Set();
++    if (existingCargaId) {
++      const existing = await new sql.Request(transaction)
++        .input('id', sql.UniqueIdentifier, existingCargaId)
++        .query('SELECT tipo, estoqueMovimentado FROM dbo.cargas WITH (UPDLOCK, HOLDLOCK) WHERE id = @id');
++      const carga = existing.recordset[0];
++      if (!carga) throw notFound('O movimento não foi encontrado.');
++      const previousItems = await new sql.Request(transaction)
++        .input('id', sql.UniqueIdentifier, existingCargaId)
++        .query('SELECT produtoRef FROM dbo.carga_itens WHERE cargaId = @id');
++      previousItems.recordset.forEach((row) => row.produtoRef && previousRefs.add(String(row.produtoRef).toLowerCase()));
++      // Desfaz o efeito anterior no estoque antes de aplicar o novo.
++      if (carga.estoqueMovimentado) await revertCargaStock(transaction, existingCargaId, carga.tipo);
++      await new sql.Request(transaction)
++        .input('id', sql.UniqueIdentifier, existingCargaId)
++        .query('DELETE FROM dbo.carga_itens WHERE cargaId = @id');
++    }
++    if (pedidoId) await validateCargaPedido(transaction, pedidoId, existingCargaId);
++
++    const normalizedItems = [];
++    for (const { productRef, quantity } of requested.values()) {
++      const productResult = await new sql.Request(transaction)
++        .input('id', sql.UniqueIdentifier, productRef)
++        .query('SELECT produtoId, nome, medida, status FROM dbo.produtos WHERE id = @id');
++      const product = productResult.recordset[0];
++      if (!product) throw conflict('Um dos produtos selecionados não existe mais.');
++      if (String(product.status || '').toLowerCase() === 'inativo' && !previousRefs.has(productRef.toLowerCase())) {
++        throw conflict(`O produto ${product.nome} está inativo.`);
++      }
++      normalizedItems.push({ productRef, quantity, code: product.produtoId || '', name: product.nome || '', measure: product.medida || '' });
++    }
++    const totalQuantity = normalizedItems.reduce((sum, item) => sum + item.quantity, 0);
++    const movimenta = cargaMovimentaEstoque(tipo, pedidoId);
++
++    const request = new sql.Request(transaction)
++      .input('tipo', sql.NVarChar(20), tipo)
++      .input('data', sql.Date, data)
++      .input('motorista', sql.NVarChar(100), header.motorista)
++      .input('funcionario', sql.NVarChar(100), header.funcionario)
++      .input('transportadora', sql.NVarChar(150), header.transportadora)
++      .input('nf', sql.NVarChar(30), header.nf)
++      .input('pedidoId', sql.UniqueIdentifier, pedidoId)
++      .input('qtd', sql.Int, totalQuantity)
++      .input('status', sql.NVarChar(30), status || null)
++      .input('movimentado', sql.Bit, movimenta);
++    let cargaId;
++    if (existingCargaId) {
++      request.input('id', sql.UniqueIdentifier, existingCargaId);
++      await request.query(`UPDATE dbo.cargas
++        SET tipo=@tipo, data=@data, motorista=@motorista, funcionario=@funcionario, transportadora=@transportadora,
++            nf=@nf, pedidoId=@pedidoId, qtd=@qtd, status=@status, estoqueMovimentado=@movimentado
++        WHERE id=@id`);
++      cargaId = existingCargaId;
++    } else {
++      const inserted = await request.query(`INSERT INTO dbo.cargas
++          (tipo, data, motorista, funcionario, transportadora, nf, pedidoId, qtd, status, estoqueMovimentado)
++        OUTPUT inserted.id
++        VALUES (@tipo, @data, @motorista, @funcionario, @transportadora, @nf, @pedidoId, @qtd, @status, @movimentado)`);
++      cargaId = inserted.recordset[0].id;
++    }
++
++    for (const item of normalizedItems) {
++      await new sql.Request(transaction)
++        .input('cargaId', sql.UniqueIdentifier, cargaId)
++        .input('produtoRef', sql.UniqueIdentifier, item.productRef)
++        .input('produtoId', sql.NVarChar(60), item.code)
++        .input('item', sql.NVarChar(200), item.name)
++        .input('medida', sql.NVarChar(60), item.measure)
++        .input('qtd', sql.Int, item.quantity)
++        .query(`INSERT INTO dbo.carga_itens (cargaId, produtoRef, produtoId, item, medida, qtd)
++                VALUES (@cargaId, @produtoRef, @produtoId, @item, @medida, @qtd)`);
++      if (movimenta) {
++        await changeStock(transaction, item.productRef, tipo === 'descarga' ? item.quantity : -item.quantity, item.name);
++      }
++    }
++
++    await transaction.commit();
++    return { id: String(cargaId), totalPecas: totalQuantity, estoqueMovimentado: movimenta };
++  } catch (error) {
++    await transaction.rollback().catch(() => {});
++    throw error;
++  }
++}
++
++async function getCarcacaOrdemForPdf(pool, id) {
++  const validId = parseGuid(id, 'Identificador do apontamento');
++  const ordemResult = await pool.request()
++    .input('id', sql.UniqueIdentifier, validId)
++    .query(`SELECT numero, CONVERT(nvarchar(10), data, 23) AS data, dono, origem, status, obs, total
++            FROM dbo.carcaca_ordens WHERE id = @id`);
++  const ordem = ordemResult.recordset[0];
++  if (!ordem) throw notFound('Apontamento não encontrado.');
++  const itensResult = await pool.request()
++    .input('id', sql.UniqueIdentifier, validId)
++    .query(`SELECT produtoId, item, medida, qtd, valorUnitario, valorTotal
++            FROM dbo.carcaca_ordem_itens WHERE ordemId = @id ORDER BY criadoEm, id`);
++  return { ...ordem, itens: itensResult.recordset };
++}
++
+ module.exports = {
+   getAllData,
+   createRow,
+@@ -711,7 +948,9 @@
+   deleteRow,
+   createOrUpdateSale,
+   createOrUpdateCarcacaOrdem,
++  createOrUpdateCarga,
+   getOrderForPdf,
++  getCarcacaOrdemForPdf,
+   parseGuid,
+   normalizeSaleUnitPrice
+ };
+--- a/src/pdf.js
++++ b/src/pdf.js
+@@ -1,7 +1,7 @@
+ const fs = require('node:fs');
+ const path = require('node:path');
+ const PDFDocument = require('pdfkit');
+-const { getOrderForPdf } = require('./operations');
++const { getOrderForPdf, getCarcacaOrdemForPdf } = require('./operations');
+ 
+ const money = (value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value) || 0);
+ const safe = (value) => String(value == null ? '' : value).replace(/[\r\n\t]+/g, ' ').trim();
+@@ -136,4 +136,163 @@
+   return { buffer, filename: `Pedido-${filename}.pdf` };
+ }
+ 
+-module.exports = { createOrderPdf };
++// ---------------------------------------------------------------------------
++// PDF do apontamento de entrada de carcaças (mesmo visual do PDF do pedido).
++// ---------------------------------------------------------------------------
++const PDF_COLORS = { green: '#16834A', darkGreen: '#105E37', soft: '#65736A', line: '#DDE5DF', ink: '#202923', zebra: '#F2F8F4' };
++const LOGO_PATH = path.join(__dirname, '..', 'wwwroot', 'fotos', 'logo', 'logo.PNG');
++const capitalize = (value) => { const text = safe(value); return text ? text.charAt(0).toUpperCase() + text.slice(1) : ''; };
++
++function drawCompanyHeader(doc, { title, numberLabel, number, date }) {
++  const { green, darkGreen, soft } = PDF_COLORS;
++  const pageWidth = doc.page.width;
++  const left = 48;
++  const right = pageWidth - 48;
++  doc.rect(0, 0, pageWidth * 0.23, 12).fill(green);
++  doc.rect(pageWidth * 0.23, 0, pageWidth * 0.77, 12).fill('#111111');
++  if (fs.existsSync(LOGO_PATH)) {
++    try { doc.image(LOGO_PATH, left, 34, { fit: [180, 58], valign: 'center' }); } catch { /* PDF sem logo se a imagem for inválida */ }
++  } else {
++    doc.font('Helvetica-Bold').fontSize(23).fillColor(darkGreen).text('MS PNEUS', left, 46, { width: 180 });
++  }
++  doc.font('Helvetica-Bold').fontSize(9).fillColor(darkGreen).text('46 99110-7935 / 46 99115-2629', right - 215, 38, { width: 215, align: 'right' });
++  doc.font('Helvetica').fontSize(8).fillColor(soft)
++    .text('Rua Edgar Faust, 163 · Bairro Padre Ulrico', right - 240, 52, { width: 240, align: 'right' })
++    .text('Francisco Beltrão - PR · CEP 85604-481', right - 240, 64, { width: 240, align: 'right' });
++  doc.moveTo(left, 105).lineTo(right, 105).lineWidth(2).strokeColor(green).stroke();
++  doc.font('Helvetica-Bold').fontSize(20).fillColor('#111111').text(title, left, 122, { width: right - left - 160 });
++  doc.font('Helvetica-Bold').fontSize(9).fillColor(soft).text(numberLabel, right - 145, 124, { width: 145, align: 'right' });
++  doc.font('Helvetica-Bold').fontSize(14).fillColor('#111111').text(safe(number) || '—', right - 145, 140, { width: 145, align: 'right' });
++  doc.font('Helvetica').fontSize(9).fillColor(soft).text(`Data: ${dateBr(date) || '—'}`, left, 154);
++}
++
++function drawFooters(doc, text) {
++  const pageWidth = doc.page.width;
++  const range = doc.bufferedPageRange();
++  for (let index = 0; index < range.count; index += 1) {
++    doc.switchToPage(range.start + index);
++    const footerY = doc.page.height - 42;
++    // Zera a margem inferior para o texto do rodapé não abrir uma página nova.
++    const bottomMargin = doc.page.margins.bottom;
++    doc.page.margins.bottom = 0;
++    doc.rect(0, footerY, pageWidth, 42).fill('#111111');
++    doc.font('Helvetica-Bold').fontSize(8).fillColor('#FFFFFF')
++      .text(text, 48, footerY + 12, { width: pageWidth - 96, align: 'center', lineBreak: false })
++      .text(`Página ${index + 1} de ${range.count}`, 48, footerY + 24, { width: pageWidth - 96, align: 'center', lineBreak: false });
++    doc.page.margins.bottom = bottomMargin;
++  }
++}
++
++function renderPdf(info, draw) {
++  return new Promise((resolve, reject) => {
++    const chunks = [];
++    const doc = new PDFDocument({ size: 'A4', margin: 48, bufferPages: true, info });
++    doc.on('data', (chunk) => chunks.push(chunk));
++    doc.on('end', () => resolve(Buffer.concat(chunks)));
++    doc.on('error', reject);
++    try {
++      draw(doc);
++      doc.end();
++    } catch (error) {
++      reject(error);
++    }
++  });
++}
++
++async function createCarcacaOrdemPdf(pool, id) {
++  const ordem = await getCarcacaOrdemForPdf(pool, id);
++  const { darkGreen, soft, line, ink, zebra } = PDF_COLORS;
++  const itens = ordem.itens || [];
++  const lineTotal = (item) => (item.valorTotal != null ? Number(item.valorTotal) : Number(item.qtd || 0) * Number(item.valorUnitario || 0)) || 0;
++  const totalUnidades = itens.reduce((sum, item) => sum + (Number(item.qtd) || 0), 0);
++  const totalValor = itens.length ? itens.reduce((sum, item) => sum + lineTotal(item), 0) : Number(ordem.total) || 0;
++
++  const buffer = await renderPdf({ Title: `Apontamento ${safe(ordem.numero)}`, Author: 'Fábrica de Pneus' }, (doc) => {
++    const left = 48;
++    const right = doc.page.width - 48;
++    const contentWidth = right - left;
++    const bottomLimit = doc.page.height - 75;
++    drawCompanyHeader(doc, { title: 'APONTAMENTO DE CARCAÇAS', numberLabel: 'APONTAMENTO', number: ordem.numero, date: ordem.data });
++
++    // Dados do apontamento
++    let y = 184;
++    const infoBox = (label, value, x, width) => {
++      doc.font('Helvetica-Bold').fontSize(8).fillColor(darkGreen).text(label, x, y, { width });
++      doc.font('Helvetica').fontSize(10).fillColor(ink).text(value || '—', x, y + 12, { width });
++    };
++    const colWidth = contentWidth / 3;
++    infoBox('DONO / FORNECEDOR', safe(ordem.dono), left, colWidth - 10);
++    infoBox('ORIGEM', capitalize(ordem.origem), left + colWidth, colWidth - 10);
++    infoBox('STATUS', capitalize(ordem.status), left + colWidth * 2, colWidth - 10);
++    y += 38;
++    if (ordem.obs) {
++      doc.font('Helvetica-Bold').fontSize(8).fillColor(darkGreen).text('OBSERVAÇÕES', left, y);
++      const obs = safe(ordem.obs);
++      doc.font('Helvetica').fontSize(9).fillColor(ink).text(obs, left, y + 12, { width: contentWidth });
++      y += 18 + doc.heightOfString(obs, { width: contentWidth });
++    }
++
++    // Tabela de carcaças
++    y += 10;
++    const col = { code: left, desc: left + 62, qty: right - 230, unit: right - 168, total: right - 82 };
++    const tableHeader = () => {
++      doc.rect(left, y, contentWidth, 25).fill(darkGreen);
++      doc.font('Helvetica-Bold').fontSize(8).fillColor('#FFFFFF')
++        .text('CÓD.', col.code + 8, y + 8, { width: 50 })
++        .text('CARCAÇA / MEDIDA', col.desc, y + 8, { width: col.qty - col.desc - 8 })
++        .text('QTD.', col.qty, y + 8, { width: 50, align: 'right' })
++        .text('UNITÁRIO', col.unit, y + 8, { width: 78, align: 'right' })
++        .text('TOTAL', col.total, y + 8, { width: 74, align: 'right' });
++      y += 25;
++    };
++    tableHeader();
++    const rows = Math.max(6, itens.length);
++    for (let i = 0; i < rows; i += 1) {
++      const item = itens[i];
++      const nome = item ? safe(item.item) : '';
++      const medida = item ? safe(item.medida) : '';
++      const description = item ? ((medida && !nome.includes(medida) ? [nome, medida] : [nome]).filter(Boolean).join(' · ') || medida || '—') : '';
++      doc.font('Helvetica').fontSize(8);
++      const height = item ? Math.max(26, doc.heightOfString(description, { width: col.qty - col.desc - 10 }) + 14) : 26;
++      if (y + height > bottomLimit) { doc.addPage(); y = 50; tableHeader(); }
++      if (i % 2 === 0) doc.rect(left, y, contentWidth, height).fill(zebra);
++      doc.moveTo(left, y + height).lineTo(right, y + height).lineWidth(0.5).strokeColor(line).stroke();
++      if (item) {
++        doc.font('Helvetica').fontSize(8).fillColor(ink)
++          .text(safe(item.produtoId) || '—', col.code + 8, y + 9, { width: 52 })
++          .text(description, col.desc, y + 8, { width: col.qty - col.desc - 10 })
++          .text(String(Number(item.qtd) || 0), col.qty, y + 9, { width: 50, align: 'right' })
++          .text(money(item.valorUnitario), col.unit, y + 9, { width: 78, align: 'right' })
++          .text(money(lineTotal(item)), col.total, y + 9, { width: 74, align: 'right' });
++      }
++      y += height;
++    }
++
++    // Totais
++    if (y + 150 > bottomLimit) { doc.addPage(); y = 50; }
++    y += 16;
++    const summaryX = right - 230;
++    doc.font('Helvetica').fontSize(9).fillColor(soft).text('Total de carcaças', summaryX, y, { width: 115 });
++    doc.font('Helvetica-Bold').fillColor(ink).text(`${totalUnidades} un.`, summaryX + 115, y, { width: 115, align: 'right' });
++    y += 20;
++    doc.rect(summaryX, y, 230, 34).fill(zebra);
++    doc.rect(summaryX, y, 92, 34).fill('#111111');
++    doc.font('Helvetica-Bold').fontSize(11).fillColor('#FFFFFF').text('TOTAL R$', summaryX + 8, y + 11, { width: 76, align: 'center' });
++    doc.font('Helvetica-Bold').fontSize(12).fillColor('#111111').text(money(totalValor), summaryX + 102, y + 10, { width: 120, align: 'right' });
++
++    // Assinaturas
++    y += 80;
++    const signWidth = (contentWidth - 40) / 2;
++    [['Entregue por', left], ['Conferido / recebido por', left + signWidth + 40]].forEach(([label, x]) => {
++      doc.moveTo(x, y).lineTo(x + signWidth, y).lineWidth(0.8).strokeColor('#9AA79F').stroke();
++      doc.font('Helvetica').fontSize(8).fillColor(soft).text(label, x, y + 6, { width: signWidth, align: 'center' });
++    });
++
++    drawFooters(doc, 'MS PNEUS · APONTAMENTO DE ENTRADA DE CARCAÇAS · Francisco Beltrão - PR');
++  });
++
++  const filename = String(ordem.numero || 'apontamento').replace(/[^A-Za-z0-9_-]/g, '_');
++  return { buffer, filename: `Apontamento-${filename}.pdf` };
++}
++
++module.exports = { createOrderPdf, createCarcacaOrdemPdf };
+--- a/wwwroot/js/app.js
++++ b/wwwroot/js/app.js
+@@ -27,6 +27,14 @@
+     const [kind, id] = b.dataset.edit.split(":");
+     openForm(kind, db[kind].find((row) => row.id === id));
+   });
++  view.querySelectorAll("[data-pdf-carcaca]").forEach((b) => b.onclick = async () => {
++    const textoOriginal = b.textContent;
++    b.disabled = true;
++    b.textContent = "Gerando PDF...";
++    try { await baixarArquivo(`/api/carcaca-ordens/${b.dataset.pdfCarcaca}/pdf`, "apontamento.pdf"); }
++    catch (error) { toast(`Não foi possível gerar o PDF: ${error.message}`, "bad"); }
++    finally { b.disabled = false; b.textContent = textoOriginal; }
++  });
+   view.querySelectorAll("[data-del]").forEach((b) => b.onclick = () => {
+     const [kind, id] = b.dataset.del.split(":");
+     removeRow(kind, id);
+@@ -137,7 +145,7 @@
+             <td>${money(item.valorTotal !== "" && item.valorTotal != null ? item.valorTotal : (Number(item.qtd) || 0) * (Number(item.valorUnitario) || 0))}</td>
+           </tr>`).join("")}</tbody></table></div>
+         </details>
+-        <div class="produto-admin-acoes">${registrado
++        <div class="produto-admin-acoes"><button class="btn ghost small" type="button" data-pdf-carcaca="${escapeAttr(ordem.id)}">Baixar PDF</button>${registrado
+           ? `<button class="btn ghost small" type="button" data-edit="carcacaOrdens:${escapeHtml(ordem.id)}">Editar</button><button class="btn danger small" type="button" data-del="carcacaOrdens:${escapeHtml(ordem.id)}">Excluir</button>`
+           : `<span class="hint">Apontamento conferido — somente leitura.</span>`}</div>
+       </section>`;
+@@ -150,12 +158,20 @@
+     return [escapeHtml(r.produtoId || produto?.produtoId || ""), escapeHtml(produto?.nome || r.item || ""), escapeHtml(r.medida || produto?.medida || ""), r.qtd, r.minimo];
+   }); },
+   producao() { return table("producao", ["Data", "Turno", "Medida", "Qtd", "Operador", "Status"], (r) => [br(r.data), escapeHtml(r.turno), escapeHtml(r.medida), r.qtd, escapeHtml(r.operador), badge(r.status)]); },
+-  cargas() { return table("cargas", ["Tipo", "Data", "Venda", "Cliente", "Peças", "Motorista", "Funcionário", "Status"], (r) => {
++  cargas() { return table("cargas", ["Tipo", "Data", "Venda", "Cliente", "Produtos", "Peças", "Estoque", "Motorista", "Funcionário", "Status"], (r) => {
+     const venda = db.pedidos.find((pedido) => sameId(pedido.id, r.pedidoId));
+     const cliente = venda?.cliente || db.clientes.find((item) => sameId(item.id, venda?.clienteId))?.nome || "—";
++    const itens = Array.isArray(r.itens) ? r.itens : [];
++    const pecas = itens.length ? itens.reduce((soma, item) => soma + (Number(item.qtd) || 0), 0) : (venda ? totalPecasPedido(venda) : "—");
++    const produtos = itens.length
++      ? `<span title="${escapeAttr(itens.map((item) => `${item.qtd}× ${item.item || item.produtoId || "Produto"}`).join("\n"))}">${itens.length} ${itens.length === 1 ? "produto" : "produtos"}</span>`
++      : "—";
++    const estoque = r.estoqueMovimentado === true || r.estoqueMovimentado === 1
++      ? (String(r.tipo).toLowerCase() === "descarga" ? "Entrada" : "Saída")
++      : "—";
+     return [
+       escapeHtml(r.tipo), br(r.data), escapeHtml(venda?.numero || "—"), escapeHtml(cliente),
+-      venda ? totalPecasPedido(venda) : "—", escapeHtml(r.motorista), escapeHtml(r.funcionario), badge(r.status)
++      produtos, pecas, estoque, escapeHtml(r.motorista), escapeHtml(r.funcionario), badge(r.status)
+     ];
+   }); },
+   vendas() {
+--- a/wwwroot/js/forms.js
++++ b/wwwroot/js/forms.js
+@@ -42,7 +42,7 @@
+     field("obs", "Observações", "textarea")
+   ].join(""),
+   produtos: () => [
+-    field("produtoId", "Código do produto", "text"), field("nome", "Nome", "text", "required"),
++    field("produtoId", "Código do produto", "text", "required maxlength='60'"), field("nome", "Nome", "text", "required"),
+     field("categoriaId", "Categoria", "select", "required"),
+     field("modelo", "Modelo", "text"),
+     field("medida", "Medida", "text"),
+@@ -104,15 +104,31 @@
+     field("operador", "Operador", "select"), field("status", "Status", "select")
+   ].join(""),
+   cargas: () => [
+-    field("tipo", "Tipo", "select"), field("data", "Data", "date", "required"),
+-    `<label class="full carga-pedido-campo">Venda / número do pedido
+-      <input id="buscaPedidoCarga" type="search" placeholder="Digite ao menos 3 números do pedido" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="sugestoesPedidoCarga" aria-expanded="false">
+-      <div class="carga-pedido-sugestoes" id="sugestoesPedidoCarga" role="listbox" hidden></div>
+-    </label>
+-    <select name="pedidoId" id="pedidoIdCarga" hidden></select>
+-    <div class="full carga-venda-preview" id="cargaVendaPreview" aria-live="polite"><p class="hint">Digite 3 ou mais números e escolha uma sugestão para ver o cliente e o total de peças. O vínculo é opcional.</p></div>`,
+-    field("motorista", "Motorista (nome)", "text"), field("funcionario", "Funcionário", "select"),
+-    field("status", "Status", "select")
++    `<div class="full apontamento-grade">
++      <div class="grid apontamento-coluna">
++        ${field("tipo", "Tipo", "select", "required")}
++        ${field("data", "Data", "date", "required")}
++        <label class="full carga-pedido-campo">Venda / número do pedido
++          <input id="buscaPedidoCarga" type="search" placeholder="Digite ao menos 3 números do pedido" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="sugestoesPedidoCarga" aria-expanded="false">
++          <div class="carga-pedido-sugestoes" id="sugestoesPedidoCarga" role="listbox" hidden></div>
++        </label>
++        <select name="pedidoId" id="pedidoIdCarga" hidden></select>
++        <div class="full carga-venda-preview" id="cargaVendaPreview" aria-live="polite"><p class="hint">Digite 3 ou mais números e escolha uma sugestão para ver o cliente e o total de peças. O vínculo é opcional.</p></div>
++        ${field("motorista", "Motorista (nome)", "text")}
++        ${field("funcionario", "Funcionário", "select")}
++        ${field("status", "Status", "select")}
++        <label class="full">Buscar produto
++          <input id="buscaProdutoCarga" type="search" placeholder="Digite ao menos 2 letras: nome, código, modelo ou medida" autocomplete="off">
++        </label>
++        <div class="full apontamento-resultados" id="cargaProdutoResultados"></div>
++      </div>
++      <aside class="apontamento-lateral" aria-label="Produtos do movimento">
++        <h3 class="apontamento-lateral-titulo">Produtos do movimento<small id="cargaResumoProdutos"></small></h3>
++        <p class="hint carga-estoque-aviso" id="cargaEstoqueAviso" aria-live="polite"></p>
++        <div class="apontamento-selecionados" id="cargaProdutosSelecionados"></div>
++        <div class="apontamento-total-geral"><span>Total de peças</span><output id="totalPecasCarga" aria-live="polite">0</output></div>
++      </aside>
++    </div>`
+   ].join(""),
+   financeiro: () => [
+     field("data", "Data", "date", "required"), field("tipo", "Tipo", "select"),
+@@ -263,6 +279,14 @@
+   camposNumero.forEach((k) => {
+     if (k in data) data[k] = Number(data[k] || 0);
+   });
++  if (editing.kind === "produtos") {
++    data.produtoId = String(data.produtoId || "").trim();
++    const codigo = data.produtoId.toLocaleLowerCase("pt-BR");
++    const repetido = db.produtos.find((produto) => !sameId(produto.id, editing.id)
++      && String(produto.produtoId || "").trim().toLocaleLowerCase("pt-BR") === codigo);
++    if (!codigo) { toast("Informe o código do produto.", "warn"); return; }
++    if (repetido) { toast(`Já existe um produto com o código ${data.produtoId} (${repetido.nome}). Use outro código.`, "warn"); return; }
++  }
+   try {
+     if (editing.id) {
+       await api(`/api/${editing.kind}/${editing.id}`, { method: "PUT", body: JSON.stringify(data) });
+@@ -419,7 +443,7 @@
+   if (!openForm._submitPadrao) openForm._submitPadrao = form.onsubmit;
+   else form.onsubmit = openForm._submitPadrao;
+   // O apontamento usa um popup mais largo, com a lista de carcaças ao lado.
+-  form.classList.toggle("modal-largo", kind === "carcacaOrdens");
++  form.classList.toggle("modal-largo", kind === "carcacaOrdens" || kind === "cargas");
+   fillSelects(form, kind, row);
+   if (kind === "clientes") {
+     const btnCnpj = document.getElementById("btnBuscarCnpj");
+@@ -548,6 +572,179 @@
+       }
+     });
+     atualizarResumoVenda();
++
++    // ---- Vários produtos por movimento (descarga = entrada; carga = saída) ----
++    const tipoSel = getField(form, "tipo");
++    const buscaProduto = document.getElementById("buscaProdutoCarga");
++    const resultadosEl = document.getElementById("cargaProdutoResultados");
++    const selecionadosEl = document.getElementById("cargaProdutosSelecionados");
++    const avisoEl = document.getElementById("cargaEstoqueAviso");
++    const chaveDe = (id) => String(id || "").toLowerCase();
++    const selecionados = new Map();
++    const disponiveis = db.produtos
++      .filter((produto) => String(produto.status || "").toLocaleLowerCase("pt-BR") !== "inativo")
++      .sort((a, b) => String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR"));
++    const produtoPorId = (id) => db.produtos.find((produto) => sameId(produto.id, id));
++    const novoItem = (produto, qtd, legado = {}) => ({
++      produtoRef: produto?.id || legado.produtoRef,
++      produtoId: produto?.produtoId || legado.produtoId || "",
++      nome: produto?.nome || legado.item || "Produto",
++      medida: produto?.medida || legado.medida || "",
++      qtd: Math.max(1, Math.floor(Number(qtd) || 1))
++    });
++    (Array.isArray(row?.itens) ? row.itens : []).forEach((item) => {
++      if (!item.produtoRef) return;
++      selecionados.set(chaveDe(item.produtoRef), novoItem(produtoPorId(item.produtoRef), item.qtd, item));
++    });
++    const tipoAtual = () => String(tipoSel?.value || "").toLowerCase();
++    const movimentaEstoque = () => tipoAtual() === "descarga" || (tipoAtual() === "carga" && !vendaSelect?.value);
++    const estoqueDe = (produtoRef) => { const produto = produtoPorId(produtoRef); return produto ? estoqueLocal(produto) : 0; };
++
++    const atualizarAviso = () => {
++      if (!avisoEl) return;
++      avisoEl.textContent = tipoAtual() === "descarga"
++        ? "Descarga: as quantidades serão somadas ao estoque."
++        : vendaSelect?.value
++          ? "Carga vinculada à venda: o estoque já foi baixado no faturamento, então este movimento não altera o estoque."
++          : "Carga: as quantidades serão retiradas do estoque.";
++    };
++    const atualizarTotais = () => {
++      const itens = [...selecionados.values()];
++      const total = itens.reduce((soma, item) => soma + item.qtd, 0);
++      const totalEl = document.getElementById("totalPecasCarga");
++      if (totalEl) totalEl.textContent = `${total} ${total === 1 ? "peça" : "peças"}`;
++      const resumoEl = document.getElementById("cargaResumoProdutos");
++      if (resumoEl) resumoEl.textContent = itens.length ? ` · ${itens.length} ${itens.length === 1 ? "produto" : "produtos"}` : "";
++      // Destaca linhas de saída acima do estoque atual (o servidor faz a validação final).
++      selecionadosEl?.querySelectorAll("[data-carga-item]").forEach((linha) => {
++        const item = selecionados.get(linha.dataset.cargaItem);
++        const falta = item && movimentaEstoque() && tipoAtual() === "carga" && item.qtd > estoqueDe(item.produtoRef);
++        linha.classList.toggle("carga-sem-estoque", Boolean(falta));
++      });
++    };
++    const renderSelecionados = () => {
++      if (!selecionadosEl) return;
++      const itens = [...selecionados.values()];
++      selecionadosEl.innerHTML = itens.length
++        ? `<table class="apontamento-tabela carga-tabela">
++            <thead><tr><th>Cód.</th><th>Produto</th><th>Medida</th><th class="apontamento-num">Estoque</th><th class="apontamento-num">Qtd</th><th></th></tr></thead>
++            <tbody>${itens.map((item) => {
++              const chave = chaveDe(item.produtoRef);
++              return `<tr data-carga-item="${escapeAttr(chave)}">
++                <td class="mono">${escapeHtml(item.produtoId || "—")}</td>
++                <td>${escapeHtml(item.nome)}</td>
++                <td>${escapeHtml(item.medida || "—")}</td>
++                <td class="apontamento-num">${estoqueDe(item.produtoRef)}</td>
++                <td class="apontamento-num"><input type="number" min="1" step="1" value="${item.qtd}" data-carga-qtd="${escapeAttr(chave)}" aria-label="Quantidade de ${escapeAttr(item.nome)}"></td>
++                <td class="apontamento-num"><button type="button" class="btn danger small apontamento-remove" data-carga-remove="${escapeAttr(chave)}" aria-label="Remover ${escapeAttr(item.nome)}">×</button></td>
++              </tr>`;
++            }).join("")}</tbody>
++          </table>`
++        : `<p class="hint">Nenhum produto selecionado. Pesquise ao lado e toque em Adicionar, ou escolha uma venda para trazer os pneus dela.</p>`;
++      selecionadosEl.querySelectorAll("[data-carga-remove]").forEach((botao) => botao.onclick = () => {
++        selecionados.delete(botao.dataset.cargaRemove);
++        renderSelecionados();
++        renderResultados();
++      });
++      selecionadosEl.querySelectorAll("[data-carga-qtd]").forEach((input) => input.oninput = () => {
++        const item = selecionados.get(input.dataset.cargaQtd);
++        if (!item) return;
++        item.qtd = Math.max(1, Math.floor(Number(input.value) || 1));
++        atualizarTotais();
++      });
++      atualizarTotais();
++    };
++    const renderResultados = () => {
++      if (!resultadosEl) return;
++      const busca = normalizarBuscaEntidade((buscaProduto?.value || "").trim());
++      if (busca.length < 2) {
++        resultadosEl.innerHTML = `<p class="hint">${disponiveis.length
++          ? `Digite ao menos 2 letras para pesquisar entre os ${disponiveis.length} produtos ativos.`
++          : "Nenhum produto ativo cadastrado. Cadastre primeiro na aba Produtos."}</p>`;
++        return;
++      }
++      const encontrados = disponiveis
++        .filter((produto) => normalizarBuscaEntidade([produto.produtoId, produto.nome, produto.modelo, produto.medida, produto.categoria].join(" ")).includes(busca))
++        .slice(0, 12);
++      resultadosEl.innerHTML = encontrados.length
++        ? `<div class="apontamento-lista">${encontrados.map((produto) => {
++          const chave = chaveDe(produto.id);
++          const adicionado = selecionados.has(chave);
++          return `<div class="apontamento-resultado">
++            <div class="apontamento-resultado-info">
++              <span class="mono">${escapeHtml(produto.produtoId || "Sem código")}</span>
++              <strong>${escapeHtml(produto.nome)}</strong>
++              <small>${escapeHtml([produto.categoria, produto.medida].filter(Boolean).join(" · ") || "—")}</small>
++            </div>
++            <span class="apontamento-resultado-custo">Estoque: <strong>${estoqueLocal(produto)}</strong></span>
++            <button type="button" class="btn small" data-carga-add="${escapeAttr(chave)}" ${adicionado ? "disabled" : ""}>${adicionado ? "Adicionado" : "Adicionar"}</button>
++          </div>`;
++        }).join("")}</div>`
++        : `<p class="hint">Nenhum produto corresponde à pesquisa.</p>`;
++      resultadosEl.querySelectorAll("[data-carga-add]").forEach((botao) => botao.onclick = () => {
++        const produto = disponiveis.find((p) => chaveDe(p.id) === botao.dataset.cargaAdd);
++        if (!produto) return;
++        selecionados.set(chaveDe(produto.id), novoItem(produto, 1));
++        botao.disabled = true;
++        botao.textContent = "Adicionado";
++        renderSelecionados();
++      });
++    };
++    // Ao escolher uma venda, a lista vem preenchida com os pneus dela (pode ajustar depois).
++    const preencherComVenda = () => {
++      const venda = db.pedidos.find((pedido) => sameId(pedido.id, vendaSelect?.value));
++      if (!venda) return;
++      const pneus = (venda.itens || []).filter((item) => String(item.tipo || "pneu").toLowerCase() === "pneu" && item.produtoRef);
++      if (!pneus.length) return;
++      selecionados.clear();
++      pneus.forEach((item) => {
++        const chave = chaveDe(item.produtoRef);
++        const atual = selecionados.get(chave);
++        if (atual) atual.qtd += Math.max(1, Math.floor(Number(item.qtd) || 1));
++        else selecionados.set(chave, novoItem(produtoPorId(item.produtoRef), item.qtd, { produtoRef: item.produtoRef, produtoId: item.produtoId, item: item.descricao, medida: item.medida }));
++      });
++      renderSelecionados();
++      renderResultados();
++      toast(`Produtos da venda ${venda.numero || ""} carregados. Ajuste se necessário.`, "ok");
++    };
++    vendaSelect?.addEventListener("change", () => { atualizarAviso(); preencherComVenda(); atualizarTotais(); });
++    buscaPedido?.addEventListener("input", () => { atualizarAviso(); atualizarTotais(); });
++    tipoSel?.addEventListener("change", () => { atualizarAviso(); atualizarTotais(); });
++    buscaProduto?.addEventListener("input", renderResultados);
++    atualizarAviso();
++    renderResultados();
++    renderSelecionados();
++
++    form.onsubmit = async (event) => {
++      event.preventDefault();
++      const itens = [...selecionados.values()].map((item) => ({ produtoRef: item.produtoRef, qtd: Math.max(0, Math.floor(Number(item.qtd) || 0)) }));
++      if (!itens.length) { toast("Selecione ao menos um produto para o movimento.", "warn"); return; }
++      if (itens.some((item) => item.qtd < 1)) { toast("Cada produto deve ter quantidade igual ou maior que 1.", "warn"); return; }
++      const body = {
++        tipo: tipoSel?.value || "",
++        data: getField(form, "data")?.value || today(),
++        pedidoId: vendaSelect?.value || null,
++        motorista: getField(form, "motorista")?.value || "",
++        funcionario: getField(form, "funcionario")?.value || "",
++        status: getField(form, "status")?.value || "",
++        itens
++      };
++      try {
++        const resultado = await api(editing.id ? `/api/cargas/${editing.id}` : "/api/cargas", {
++          method: editing.id ? "PUT" : "POST",
++          body: JSON.stringify(body)
++        });
++        document.getElementById("modal").classList.remove("show");
++        const efeito = resultado.estoqueMovimentado
++          ? (body.tipo === "descarga" ? "Entrada lançada no estoque." : "Saída lançada no estoque.")
++          : "Estoque não alterado (carga de venda já faturada).";
++        toast(`Movimento salvo: ${resultado.totalPecas} peças. ${efeito}`, "ok");
++        await load();
++        render();
++      } catch (error) {
++        toast(`Não foi possível salvar: ${error.message}`, "bad");
++      }
++    };
+   }
+   form.querySelectorAll(".preco-mask").forEach((input) => {
+     if (input.value !== "") {
+--- a/wwwroot/js/utils.js
++++ b/wwwroot/js/utils.js
+@@ -118,6 +118,34 @@
+   return isNaN(n) ? 0 : n;
+ }
+ 
++// Baixa um arquivo autenticado (ex.: PDFs) e dispara o download no navegador.
++async function baixarArquivo(url, nomePadrao = "arquivo.pdf") {
++  const headers = {};
++  const token = sessionStorage.getItem("token");
++  if (token) headers["Authorization"] = "Bearer " + token;
++  const response = await fetch(url, { headers });
++  if (response.status === 401) {
++    sessionStorage.removeItem("token");
++    sessionStorage.removeItem("usuario");
++    if (typeof showLoginOverlay === "function") showLoginOverlay("Sessão expirada. Faça login novamente.");
++    throw new Error("Sessão expirada. Faça login novamente.");
++  }
++  if (!response.ok) {
++    let message = `Erro HTTP ${response.status}`;
++    try { const body = await response.json(); message = body.detail || message; } catch { }
++    throw new Error(message);
++  }
++  const blob = await response.blob();
++  const objectUrl = URL.createObjectURL(blob);
++  const link = document.createElement("a");
++  link.href = objectUrl;
++  link.download = response.headers.get("Content-Disposition")?.match(/filename="?([^";]+)"?/i)?.[1] || nomePadrao;
++  document.body.appendChild(link);
++  link.click();
++  link.remove();
++  URL.revokeObjectURL(objectUrl);
++}
++
+ async function api(url, options = {}) {
+   const response = await fetch(url, {
+     ...options,
+--- a/wwwroot/js/vendas.js
++++ b/wwwroot/js/vendas.js
+@@ -579,31 +579,7 @@
+ }
+ 
+ async function baixarPdf(id) {
+-  const token = sessionStorage.getItem("token");
+-  const headers = {};
+-  if (token) headers["Authorization"] = "Bearer " + token;
+-  const response = await fetch(`/api/pedidos/${id}/pdf`, { headers });
+-  if (response.status === 401) {
+-    sessionStorage.removeItem("token");
+-    sessionStorage.removeItem("usuario");
+-    const overlay = document.getElementById("loginOverlay");
+-    if (overlay) overlay.style.display = "flex";
+-    throw new Error("Sessão expirada. Faça login novamente.");
+-  }
+-  if (!response.ok) {
+-    let message = `Erro HTTP ${response.status}`;
+-    try { const body = await response.json(); message = body.detail || message; } catch { }
+-    throw new Error(message);
+-  }
+-  const blob = await response.blob();
+-  const url = URL.createObjectURL(blob);
+-  const link = document.createElement("a");
+-  link.href = url;
+-  link.download = response.headers.get("Content-Disposition")?.match(/filename="?([^";]+)"?/i)?.[1] || "pedido.pdf";
+-  document.body.appendChild(link);
+-  link.click();
+-  link.remove();
+-  URL.revokeObjectURL(url);
++  await baixarArquivo(`/api/pedidos/${id}/pdf`, "pedido.pdf");
+ }
+ 
+ function renderPedido() {
+--- a/wwwroot/styles.css
++++ b/wwwroot/styles.css
+@@ -1413,6 +1413,15 @@
+   font-weight: 700;
+ }
+ 
++/* Carga e descarga: tabela de produtos do movimento */
++.carga-tabela th:nth-child(3) { width: 92px; }
++.carga-tabela th:nth-child(4) { width: 72px; }
++.carga-tabela th:nth-child(5) { width: 72px; }
++.carga-tabela th:nth-child(6) { width: 34px; }
++.carga-tabela tr.carga-sem-estoque td { color: var(--bad, #d64545); }
++.carga-tabela tr.carga-sem-estoque input { border-color: var(--bad, #d64545); }
++.carga-estoque-aviso { margin: 0; }
++
+ @media (max-width: 900px) {
+   .apontamento-grade {
+     grid-template-columns: 1fr;

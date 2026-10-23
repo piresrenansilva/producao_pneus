@@ -64,13 +64,31 @@ CREATE TABLE dbo.servicos (
 );
 GO
 
+IF OBJECT_ID('dbo.produtoCategoria', 'U') IS NULL
+CREATE TABLE dbo.produtoCategoria (
+    id       int IDENTITY(1,1) NOT NULL CONSTRAINT PK_produtoCategoria PRIMARY KEY,
+    criadoEm datetime2         NOT NULL CONSTRAINT DF_produtoCategoria_criadoEm DEFAULT SYSDATETIME(),
+    nome     nvarchar(80)      NOT NULL CONSTRAINT UQ_produtoCategoria_nome UNIQUE,
+    status   nvarchar(30)      NOT NULL CONSTRAINT DF_produtoCategoria_status DEFAULT N'Ativo'
+);
+GO
+
+-- Categorias iniciais do cadastro de produtos (insere somente se ainda não existirem).
+IF NOT EXISTS (SELECT 1 FROM dbo.produtoCategoria WHERE nome = N'Revenda')
+    INSERT INTO dbo.produtoCategoria (nome) VALUES (N'Revenda');
+IF NOT EXISTS (SELECT 1 FROM dbo.produtoCategoria WHERE nome = N'Carcaça')
+    INSERT INTO dbo.produtoCategoria (nome) VALUES (N'Carcaça');
+GO
+
 IF OBJECT_ID('dbo.produtos', 'U') IS NULL
 CREATE TABLE dbo.produtos (
     id uniqueidentifier NOT NULL CONSTRAINT DF_produtos_id DEFAULT NEWID() CONSTRAINT PK_produtos PRIMARY KEY,
     criadoEm datetime2 NOT NULL CONSTRAINT DF_produtos_criadoEm DEFAULT SYSDATETIME(),
     produtoId nvarchar(60) NULL,
     nome nvarchar(200) NOT NULL,
-    categoria nvarchar(80) NULL,
+    categoriaId int NULL CONSTRAINT FK_produtos_produtoCategoria REFERENCES dbo.produtoCategoria (id),
+    categoria nvarchar(80) NULL, -- legado: texto antigo; a categoria vem de produtoCategoria
+    modelo nvarchar(120) NULL,
     medida nvarchar(60) NULL,
     unidade nvarchar(20) NULL,
     preco decimal(12,2) NOT NULL CONSTRAINT DF_produtos_preco DEFAULT 0,
@@ -145,7 +163,8 @@ CREATE TABLE dbo.cargas (
     nf            nvarchar(30)  NULL,
     qtd           int           NOT NULL CONSTRAINT DF_cargas_qtd DEFAULT 0,
     item          nvarchar(200) NULL,
-    status        nvarchar(30)  NULL
+    status        nvarchar(30)  NULL,
+    estoqueMovimentado bit      NOT NULL CONSTRAINT DF_cargas_estoqueMovimentado DEFAULT 0
 );
 GO
 
@@ -297,5 +316,21 @@ CREATE TABLE dbo.carcaca_ordem_itens (
     qtd           int              NOT NULL CONSTRAINT DF_carcaca_ordem_itens_qtd DEFAULT 0,
     valorUnitario decimal(12, 2)   NOT NULL CONSTRAINT DF_carcaca_ordem_itens_valorUnitario DEFAULT 0,
     valorTotal    decimal(12, 2)   NOT NULL CONSTRAINT DF_carcaca_ordem_itens_valorTotal DEFAULT 0
+);
+GO
+
+-- Itens (produtos) de cada movimento de carga/descarga. A descarga dá entrada
+-- no estoque e a carga dá saída (exceto carga vinculada a venda, cuja baixa já
+-- acontece no faturamento). produtoId/item/medida guardam uma cópia do cadastro.
+IF OBJECT_ID('dbo.carga_itens', 'U') IS NULL
+CREATE TABLE dbo.carga_itens (
+    id         uniqueidentifier NOT NULL CONSTRAINT DF_carga_itens_id DEFAULT NEWID() CONSTRAINT PK_carga_itens PRIMARY KEY,
+    criadoEm   datetime2        NOT NULL CONSTRAINT DF_carga_itens_criadoEm DEFAULT SYSDATETIME(),
+    cargaId    uniqueidentifier NOT NULL CONSTRAINT FK_carga_itens_carga REFERENCES dbo.cargas (id) ON DELETE CASCADE,
+    produtoRef uniqueidentifier NULL,
+    produtoId  nvarchar(60)     NULL,
+    item       nvarchar(200)    NULL,
+    medida     nvarchar(60)     NULL,
+    qtd        int              NOT NULL CONSTRAINT DF_carga_itens_qtd DEFAULT 0
 );
 GO

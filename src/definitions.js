@@ -24,7 +24,18 @@ const tables = {
   },
   produtos: {
     table: 'produtos',
-    columns: [S('produtoId', 60), S('nome', 200), S('categoria', 80), S('medida', 60), S('unidade', 20), M('preco'), M('custo'), S('obs', 500), S('status', 30)]
+    // A categoria é gravada como categoriaId e lida (nome) da tabela produtoCategoria.
+    // O texto antigo de produtos.categoria só é usado quando o produto ainda não tem vínculo.
+    joins: 'LEFT JOIN dbo.[produtoCategoria] pc ON pc.[id] = t.[categoriaId]',
+    computed: { categoria: 'COALESCE(pc.[nome], t.[categoria])' },
+    columns: [S('produtoId', 60), S('nome', 200), I('categoriaId'), S('modelo', 120), S('medida', 60), S('unidade', 20), M('preco'), M('custo'), S('obs', 500), S('status', 30)]
+  },
+  produtoCategoria: {
+    table: 'produtoCategoria',
+    // Somente leitura pela API por enquanto (alimenta a lista do cadastro de produtos).
+    readOnlyRoute: true,
+    orderBy: 't.[id]',
+    columns: [S('nome', 80), S('status', 30)]
   },
   carcacas: {
     table: 'carcacas',
@@ -42,7 +53,13 @@ const tables = {
     table: 'cargas',
     // Mantemos os campos antigos placa/parceiro/qtd/item para ler registros legados,
     // mas a interface nova usa funcionário, transportadora e o vínculo com a venda.
-    columns: [S('tipo', 20), T('data'), S('placa', 20), S('motorista', 100), S('funcionario', 100), S('transportadora', 150), G('pedidoId'), S('parceiro', 150), S('nf', 30), I('qtd'), S('item', 200), S('status', 30)]
+    // Criação/edição passam pelo fluxo próprio (/api/cargas), que grava os itens e movimenta o estoque.
+    columns: [S('tipo', 20), T('data'), S('placa', 20), S('motorista', 100), S('funcionario', 100), S('transportadora', 150), G('pedidoId'), S('parceiro', 150), S('nf', 30), I('qtd'), S('item', 200), S('status', 30), RO('estoqueMovimentado', 'b')]
+  },
+  cargaItens: {
+    table: 'carga_itens',
+    readOnlyRoute: true,
+    columns: [G('cargaId'), G('produtoRef'), S('produtoId', 60), S('item', 200), S('medida', 60), I('qtd')]
   },
   pedidos: {
     table: 'pedidos',

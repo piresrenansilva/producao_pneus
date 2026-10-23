@@ -1,7 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const PDFDocument = require('pdfkit');
-const { getOrderForPdf } = require('./operations');
+const { getOrderForPdf, getCarcacaOrdemForPdf } = require('./operations');
 
 const money = (value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value) || 0);
 const safe = (value) => String(value == null ? '' : value).replace(/[\r\n\t]+/g, ' ').trim();
@@ -136,4 +136,163 @@ async function createOrderPdf(pool, id) {
   return { buffer, filename: `Pedido-${filename}.pdf` };
 }
 
-module.exports = { createOrderPdf };
+// ---------------------------------------------------------------------------
+// PDF do apontamento de entrada de carcaças (mesmo visual do PDF do pedido).
+// ---------------------------------------------------------------------------
+const PDF_COLORS = { green: '#16834A', darkGreen: '#105E37', soft: '#65736A', line: '#DDE5DF', ink: '#202923', zebra: '#F2F8F4' };
+const LOGO_PATH = path.join(__dirname, '..', 'wwwroot', 'fotos', 'logo', 'logo.PNG');
+const capitalize = (value) => { const text = safe(value); return text ? text.charAt(0).toUpperCase() + text.slice(1) : ''; };
+
+function drawCompanyHeader(doc, { title, numberLabel, number, date }) {
+  const { green, darkGreen, soft } = PDF_COLORS;
+  const pageWidth = doc.page.width;
+  const left = 48;
+  const right = pageWidth - 48;
+  doc.rect(0, 0, pageWidth * 0.23, 12).fill(green);
+  doc.rect(pageWidth * 0.23, 0, pageWidth * 0.77, 12).fill('#111111');
+  if (fs.existsSync(LOGO_PATH)) {
+    try { doc.image(LOGO_PATH, left, 34, { fit: [180, 58], valign: 'center' }); } catch { /* PDF sem logo se a imagem for inválida */ }
+  } else {
+    doc.font('Helvetica-Bold').fontSize(23).fillColor(darkGreen).text('MS PNEUS', left, 46, { width: 180 });
+  }
+  doc.font('Helvetica-Bold').fontSize(9).fillColor(darkGreen).text('46 99110-7935 / 46 99115-2629', right - 215, 38, { width: 215, align: 'right' });
+  doc.font('Helvetica').fontSize(8).fillColor(soft)
+    .text('Rua Edgar Faust, 163 · Bairro Padre Ulrico', right - 240, 52, { width: 240, align: 'right' })
+    .text('Francisco Beltrão - PR · CEP 85604-481', right - 240, 64, { width: 240, align: 'right' });
+  doc.moveTo(left, 105).lineTo(right, 105).lineWidth(2).strokeColor(green).stroke();
+  doc.font('Helvetica-Bold').fontSize(20).fillColor('#111111').text(title, left, 122, { width: right - left - 160 });
+  doc.font('Helvetica-Bold').fontSize(9).fillColor(soft).text(numberLabel, right - 145, 124, { width: 145, align: 'right' });
+  doc.font('Helvetica-Bold').fontSize(14).fillColor('#111111').text(safe(number) || '—', right - 145, 140, { width: 145, align: 'right' });
+  doc.font('Helvetica').fontSize(9).fillColor(soft).text(`Data: ${dateBr(date) || '—'}`, left, 154);
+}
+
+function drawFooters(doc, text) {
+  const pageWidth = doc.page.width;
+  const range = doc.bufferedPageRange();
+  for (let index = 0; index < range.count; index += 1) {
+    doc.switchToPage(range.start + index);
+    const footerY = doc.page.height - 42;
+    // Zera a margem inferior para o texto do rodapé não abrir uma página nova.
+    const bottomMargin = doc.page.margins.bottom;
+    doc.page.margins.bottom = 0;
+    doc.rect(0, footerY, pageWidth, 42).fill('#111111');
+    doc.font('Helvetica-Bold').fontSize(8).fillColor('#FFFFFF')
+      .text(text, 48, footerY + 12, { width: pageWidth - 96, align: 'center', lineBreak: false })
+      .text(`Página ${index + 1} de ${range.count}`, 48, footerY + 24, { width: pageWidth - 96, align: 'center', lineBreak: false });
+    doc.page.margins.bottom = bottomMargin;
+  }
+}
+
+function renderPdf(info, draw) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    const doc = new PDFDocument({ size: 'A4', margin: 48, bufferPages: true, info });
+    doc.on('data', (chunk) => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+    try {
+      draw(doc);
+      doc.end();
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+async function createCarcacaOrdemPdf(pool, id) {
+  const ordem = await getCarcacaOrdemForPdf(pool, id);
+  const { darkGreen, soft, line, ink, zebra } = PDF_COLORS;
+  const itens = ordem.itens || [];
+  const lineTotal = (item) => (item.valorTotal != null ? Number(item.valorTotal) : Number(item.qtd || 0) * Number(item.valorUnitario || 0)) || 0;
+  const totalUnidades = itens.reduce((sum, item) => sum + (Number(item.qtd) || 0), 0);
+  const totalValor = itens.length ? itens.reduce((sum, item) => sum + lineTotal(item), 0) : Number(ordem.total) || 0;
+
+  const buffer = await renderPdf({ Title: `Apontamento ${safe(ordem.numero)}`, Author: 'Fábrica de Pneus' }, (doc) => {
+    const left = 48;
+    const right = doc.page.width - 48;
+    const contentWidth = right - left;
+    const bottomLimit = doc.page.height - 75;
+    drawCompanyHeader(doc, { title: 'APONTAMENTO DE CARCAÇAS', numberLabel: 'APONTAMENTO', number: ordem.numero, date: ordem.data });
+
+    // Dados do apontamento
+    let y = 184;
+    const infoBox = (label, value, x, width) => {
+      doc.font('Helvetica-Bold').fontSize(8).fillColor(darkGreen).text(label, x, y, { width });
+      doc.font('Helvetica').fontSize(10).fillColor(ink).text(value || '—', x, y + 12, { width });
+    };
+    const colWidth = contentWidth / 3;
+    infoBox('DONO / FORNECEDOR', safe(ordem.dono), left, colWidth - 10);
+    infoBox('ORIGEM', capitalize(ordem.origem), left + colWidth, colWidth - 10);
+    infoBox('STATUS', capitalize(ordem.status), left + colWidth * 2, colWidth - 10);
+    y += 38;
+    if (ordem.obs) {
+      doc.font('Helvetica-Bold').fontSize(8).fillColor(darkGreen).text('OBSERVAÇÕES', left, y);
+      const obs = safe(ordem.obs);
+      doc.font('Helvetica').fontSize(9).fillColor(ink).text(obs, left, y + 12, { width: contentWidth });
+      y += 18 + doc.heightOfString(obs, { width: contentWidth });
+    }
+
+    // Tabela de carcaças
+    y += 10;
+    const col = { code: left, desc: left + 62, qty: right - 230, unit: right - 168, total: right - 82 };
+    const tableHeader = () => {
+      doc.rect(left, y, contentWidth, 25).fill(darkGreen);
+      doc.font('Helvetica-Bold').fontSize(8).fillColor('#FFFFFF')
+        .text('CÓD.', col.code + 8, y + 8, { width: 50 })
+        .text('CARCAÇA / MEDIDA', col.desc, y + 8, { width: col.qty - col.desc - 8 })
+        .text('QTD.', col.qty, y + 8, { width: 50, align: 'right' })
+        .text('UNITÁRIO', col.unit, y + 8, { width: 78, align: 'right' })
+        .text('TOTAL', col.total, y + 8, { width: 74, align: 'right' });
+      y += 25;
+    };
+    tableHeader();
+    const rows = Math.max(6, itens.length);
+    for (let i = 0; i < rows; i += 1) {
+      const item = itens[i];
+      const nome = item ? safe(item.item) : '';
+      const medida = item ? safe(item.medida) : '';
+      const description = item ? ((medida && !nome.includes(medida) ? [nome, medida] : [nome]).filter(Boolean).join(' · ') || medida || '—') : '';
+      doc.font('Helvetica').fontSize(8);
+      const height = item ? Math.max(26, doc.heightOfString(description, { width: col.qty - col.desc - 10 }) + 14) : 26;
+      if (y + height > bottomLimit) { doc.addPage(); y = 50; tableHeader(); }
+      if (i % 2 === 0) doc.rect(left, y, contentWidth, height).fill(zebra);
+      doc.moveTo(left, y + height).lineTo(right, y + height).lineWidth(0.5).strokeColor(line).stroke();
+      if (item) {
+        doc.font('Helvetica').fontSize(8).fillColor(ink)
+          .text(safe(item.produtoId) || '—', col.code + 8, y + 9, { width: 52 })
+          .text(description, col.desc, y + 8, { width: col.qty - col.desc - 10 })
+          .text(String(Number(item.qtd) || 0), col.qty, y + 9, { width: 50, align: 'right' })
+          .text(money(item.valorUnitario), col.unit, y + 9, { width: 78, align: 'right' })
+          .text(money(lineTotal(item)), col.total, y + 9, { width: 74, align: 'right' });
+      }
+      y += height;
+    }
+
+    // Totais
+    if (y + 150 > bottomLimit) { doc.addPage(); y = 50; }
+    y += 16;
+    const summaryX = right - 230;
+    doc.font('Helvetica').fontSize(9).fillColor(soft).text('Total de carcaças', summaryX, y, { width: 115 });
+    doc.font('Helvetica-Bold').fillColor(ink).text(`${totalUnidades} un.`, summaryX + 115, y, { width: 115, align: 'right' });
+    y += 20;
+    doc.rect(summaryX, y, 230, 34).fill(zebra);
+    doc.rect(summaryX, y, 92, 34).fill('#111111');
+    doc.font('Helvetica-Bold').fontSize(11).fillColor('#FFFFFF').text('TOTAL R$', summaryX + 8, y + 11, { width: 76, align: 'center' });
+    doc.font('Helvetica-Bold').fontSize(12).fillColor('#111111').text(money(totalValor), summaryX + 102, y + 10, { width: 120, align: 'right' });
+
+    // Assinaturas
+    y += 80;
+    const signWidth = (contentWidth - 40) / 2;
+    [['Entregue por', left], ['Conferido / recebido por', left + signWidth + 40]].forEach(([label, x]) => {
+      doc.moveTo(x, y).lineTo(x + signWidth, y).lineWidth(0.8).strokeColor('#9AA79F').stroke();
+      doc.font('Helvetica').fontSize(8).fillColor(soft).text(label, x, y + 6, { width: signWidth, align: 'center' });
+    });
+
+    drawFooters(doc, 'MS PNEUS · APONTAMENTO DE ENTRADA DE CARCAÇAS · Francisco Beltrão - PR');
+  });
+
+  const filename = String(ordem.numero || 'apontamento').replace(/[^A-Za-z0-9_-]/g, '_');
+  return { buffer, filename: `Apontamento-${filename}.pdf` };
+}
+
+module.exports = { createOrderPdf, createCarcacaOrdemPdf };

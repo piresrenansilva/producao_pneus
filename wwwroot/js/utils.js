@@ -118,6 +118,34 @@ function parsePrecoBR(valor) {
   return isNaN(n) ? 0 : n;
 }
 
+// Baixa um arquivo autenticado (ex.: PDFs) e dispara o download no navegador.
+async function baixarArquivo(url, nomePadrao = "arquivo.pdf") {
+  const headers = {};
+  const token = sessionStorage.getItem("token");
+  if (token) headers["Authorization"] = "Bearer " + token;
+  const response = await fetch(url, { headers });
+  if (response.status === 401) {
+    sessionStorage.removeItem("token");
+    sessionStorage.removeItem("usuario");
+    if (typeof showLoginOverlay === "function") showLoginOverlay("Sessão expirada. Faça login novamente.");
+    throw new Error("Sessão expirada. Faça login novamente.");
+  }
+  if (!response.ok) {
+    let message = `Erro HTTP ${response.status}`;
+    try { const body = await response.json(); message = body.detail || message; } catch { }
+    throw new Error(message);
+  }
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = response.headers.get("Content-Disposition")?.match(/filename="?([^";]+)"?/i)?.[1] || nomePadrao;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
 async function api(url, options = {}) {
   const response = await fetch(url, {
     ...options,

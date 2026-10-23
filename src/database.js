@@ -219,6 +219,34 @@ async function executeMigrations(pool) {
     String.raw`IF COL_LENGTH('dbo.estoque', 'produtoRef') IS NULL ALTER TABLE dbo.estoque ADD produtoRef uniqueidentifier NULL;`,
     stockMigration,
     syncStockMigration,
+    String.raw`IF COL_LENGTH('dbo.produtos', 'modelo') IS NULL
+      ALTER TABLE dbo.produtos ADD modelo nvarchar(120) NULL;`,
+    String.raw`IF COL_LENGTH('dbo.produtos', 'categoriaId') IS NULL
+      ALTER TABLE dbo.produtos ADD categoriaId int NULL;`,
+    String.raw`IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_produtos_produtoCategoria')
+      ALTER TABLE dbo.produtos ADD CONSTRAINT FK_produtos_produtoCategoria
+        FOREIGN KEY (categoriaId) REFERENCES dbo.produtoCategoria (id);`,
+    // Vincula os produtos antigos à nova tabela pelo texto da categoria
+    // (sem diferenciar maiúsculas/acentos; "Carcaças" também vira "Carcaça").
+    String.raw`UPDATE p SET categoriaId = pc.id
+      FROM dbo.produtos p
+      JOIN dbo.produtoCategoria pc
+        ON pc.nome COLLATE Latin1_General_CI_AI = LTRIM(RTRIM(p.categoria)) COLLATE Latin1_General_CI_AI
+        OR (pc.nome COLLATE Latin1_General_CI_AI = N'Carcaca'
+            AND LTRIM(RTRIM(p.categoria)) COLLATE Latin1_General_CI_AI = N'Carcacas')
+      WHERE p.categoriaId IS NULL AND p.categoria IS NOT NULL;`,
+    String.raw`IF COL_LENGTH('dbo.cargas', 'estoqueMovimentado') IS NULL
+      ALTER TABLE dbo.cargas ADD estoqueMovimentado bit NOT NULL
+        CONSTRAINT DF_cargas_estoqueMovimentado DEFAULT (0) WITH VALUES;`,
+    // Código do produto único (ignora vazios). Só cria o índice se não houver
+    // códigos repetidos já gravados; nesse caso o servidor avisa no console.
+    String.raw`IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.produtos') AND name = 'UX_produtos_produtoId')
+      AND NOT EXISTS (
+        SELECT 1 FROM dbo.produtos
+        WHERE produtoId IS NOT NULL AND produtoId <> N''
+        GROUP BY produtoId HAVING COUNT(*) > 1)
+      CREATE UNIQUE INDEX UX_produtos_produtoId ON dbo.produtos (produtoId)
+        WHERE produtoId IS NOT NULL AND produtoId <> N'';`,
     String.raw`IF COL_LENGTH('dbo.carcacas', 'valorUnitario') IS NULL
       ALTER TABLE dbo.carcacas ADD valorUnitario decimal(12, 2) NOT NULL
         CONSTRAINT DF_carcacas_valorUnitario DEFAULT (0) WITH VALUES;`
@@ -227,6 +255,20 @@ async function executeMigrations(pool) {
     await pool.request().query(statement);
     if (process.env.LOG_SQL_MIGRATIONS === 'true') console.log(`Migração SQL ${index + 1}/${migrations.length} aplicada.`);
   }
+}
+
+async function warnDuplicateProductCodes(pool) {
+  const result = await pool.request().query(`
+    SELECT produtoId, COUNT(*) AS quantidade
+    FROM dbo.produtos
+    WHERE produtoId IS NOT NULL AND produtoId <> N''
+    GROUP BY produtoId HAVING COUNT(*) > 1
+    ORDER BY produtoId`);
+  if (!result.recordset.length) return;
+  const lista = result.recordset.map((row) => `${row.produtoId} (${row.quantidade}x)`).join(', ');
+  console.warn(`AVISO: existem códigos de produto repetidos: ${lista}. Corrija-os na aba Produtos; `
+    + 'o índice único do código será criado automaticamente na próxima inicialização. '
+    + 'Novos cadastros com código repetido já são bloqueados.');
 }
 
 async function initializeDatabase() {
@@ -258,6 +300,7 @@ async function initializeDatabase() {
       }
     }
     await executeMigrations(pool);
+    await warnDuplicateProductCodes(pool);
     return pool;
   } catch (error) {
     await pool.close().catch(() => {});

@@ -20,9 +20,10 @@ const {
   deleteRow,
   createOrUpdateSale,
   createOrUpdateCarcacaOrdem,
+  createOrUpdateCarga,
   parseGuid
 } = require('./src/operations');
-const { createOrderPdf } = require('./src/pdf');
+const { createOrderPdf, createCarcacaOrdemPdf } = require('./src/pdf');
 
 if (!process.env.JWT_KEY) {
   if (process.env.NODE_ENV === 'production') {
@@ -193,6 +194,23 @@ app.post('/api/carcaca-ordens', asyncRoute(async (req, res) => {
 app.put('/api/carcaca-ordens/:id', asyncRoute(async (req, res) => {
   const id = parseGuid(req.params.id, 'Identificador do apontamento');
   res.json(await createOrUpdateCarcacaOrdem(pool, req.body, id));
+}));
+
+app.get('/api/carcaca-ordens/:id/pdf', asyncRoute(async (req, res) => {
+  const pdf = await createCarcacaOrdemPdf(pool, req.params.id);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${pdf.filename}"`);
+  res.setHeader('Content-Length', pdf.buffer.length);
+  res.send(pdf.buffer);
+}));
+
+// Carga e descarga com vários produtos (movimenta o estoque).
+app.post('/api/cargas', asyncRoute(async (req, res) => {
+  res.json(await createOrUpdateCarga(pool, req.body));
+}));
+app.put('/api/cargas/:id', asyncRoute(async (req, res) => {
+  const id = parseGuid(req.params.id, 'Identificador do movimento');
+  res.json(await createOrUpdateCarga(pool, req.body, id));
 }));
 
 app.get('/api/pedidos/:id/pdf', asyncRoute(async (req, res) => {
