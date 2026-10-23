@@ -148,15 +148,17 @@ const FORMS = {
     field("vencimento", "Vencimento", "date", "required"),
     field("status", "Situação", "select", "required"),
     field("pagamento", "Data do pagamento", "date"),
-    field("formaPagamento", "Forma de pagamento", "select"),
+    field("condicaoPagamentoId", "Forma de pagamento", "select"),
     `<p class="full hint fin-origem-info" id="finOrigemInfo" hidden></p>`,
     field("obs", "Observações", "textarea", "maxlength='500'")
   ].join(""),
-  capa: () => [
-    field("cliente", "Entidade", "text", "required list='clientesPedido' autocomplete='off'"), field("data", "Data", "date", "required"),
-    field("pagamento", "Pagamento", "select"), field("status", "Status", "select"),
-    field("vendedor", "Vendedor", "text"), field("previsao", "Previsão", "date"),
-    field("obs", "Observação", "textarea")
+  condicoesPagamento: () => [
+    field("Descricao", "Descrição", "text", "required maxlength='100' placeholder='Ex.: Boleto 30/60/90'"),
+    field("Tipo", "Tipo (meio de pagamento)", "select", "required"),
+    field("QuantidadeParcelas", "Quantidade de parcelas", "number", "required min='1' max='120' step='1'"),
+    field("PrazoMedio", "Prazo médio (dias)", "number", "required min='0' max='3650' step='1'"),
+    field("Status", "Status", "select", "required"),
+    `<div class="full condicao-previa" aria-live="polite"><span>Vencimentos</span><strong id="condicaoPrevia">À vista</strong><small class="hint" id="condicaoPreviaDica"></small></div>`
   ].join("")
 };
 
@@ -175,10 +177,9 @@ const SELECTS = {
   cargas: { tipo: ["carga", "descarga"], status: ["aguardando", "conferida", "saiu", "divergente"] },
   lancamentos: {
     tipo: [["receber", "A receber (entrada)"], ["pagar", "A pagar (saída)"]],
-    status: [["pendente", "Pendente"], ["pago", "Pago / recebido"], ["cancelado", "Cancelado"]],
-    formaPagamento: [["", "Não informada"], "boleto", "pix", "dinheiro", "cartão", "transferência", "débito automático"]
+    status: [["pendente", "Pendente"], ["pago", "Pago / recebido"], ["cancelado", "Cancelado"]]
   },
-  capa: { pagamento: ["boleto", "pix", "dinheiro", "cartão", "a prazo"], status: ["orçamento", "faturado", "pago", "cancelado"] }
+  condicoesPagamento: { Tipo: TIPOS_CONDICAO_PAGAMENTO, Status: ["Ativo", "Inativo"] }
 };
 
 function vendasDisponiveisCarga(row) {
@@ -266,6 +267,7 @@ document.getElementById("nav").onclick = (e) => {
   editingPedidoId = null;
   vendaRascunho = null;
   query = "";
+  vendaPagina = 1;
   confirmDelete = "";
   render();
 };
@@ -279,7 +281,7 @@ document.getElementById("form").onsubmit = async (e) => {
     data[key] = el.value;
   }
   const camposPreco = ["custo", "preco", "valor", "unitario", "valorUnitario", "limiteCredito"];
-  const camposNumero = ["qtd", "minimo", "carcacas"];
+  const camposNumero = ["qtd", "minimo", "carcacas", "QuantidadeParcelas", "PrazoMedio"];
   camposPreco.forEach((k) => {
     if (k in data) data[k] = parsePrecoBR(data[k]);
   });
@@ -441,7 +443,7 @@ function openForm(kind, row) {
   }, 50);
 
   editing = { kind, id: row?.id || null };
-  const titles = { clientes: row ? "Editar entidade" : "Cadastrar entidade", produtos: row ? "Editar produto" : "Cadastrar produto", carcacas: "Carcaça", carcacaOrdens: row ? `Apontamento ${row.numero || "de carcaças"}` : "Novo apontamento de carcaças", estoque: "Estoque", producao: "Produção", cargas: "Movimento", lancamentos: row ? `Lançamento ${row.codigo || ""}`.trim() : "Novo lançamento financeiro" };
+  const titles = { clientes: row ? "Editar entidade" : "Cadastrar entidade", produtos: row ? "Editar produto" : "Cadastrar produto", carcacas: "Carcaça", carcacaOrdens: row ? `Apontamento ${row.numero || "de carcaças"}` : "Novo apontamento de carcaças", estoque: "Estoque", producao: "Produção", cargas: "Movimento", lancamentos: row ? `Lançamento ${row.codigo || ""}`.trim() : "Novo lançamento financeiro", condicoesPagamento: row ? `Forma de pagamento ${row.Codigo || ""}`.trim() : "Nova forma de pagamento" };
   document.getElementById("modalTitle").textContent = titles[kind] || "Registro";
   document.getElementById("formFields").innerHTML = FORMS[kind]();
   const form = document.getElementById("form");
@@ -488,6 +490,7 @@ function openForm(kind, row) {
     }
   } else if (getField(form, "data")) getField(form, "data").value = today();
   if (kind === "lancamentos") configurarFormLancamento(form, row);
+  if (kind === "condicoesPagamento") configurarFormCondicao(form, row);
   if (kind === "produtos") {
     const categoriaSel = form.querySelector('select[name="categoriaId"]');
     if (categoriaSel) categoriaSel.value = row?.categoriaId ? String(row.categoriaId) : "";
@@ -958,7 +961,7 @@ function configurarFormLancamento(form, row) {
   const tipoSel = form.querySelector('select[name="tipo"]');
   const categoriaSel = form.querySelector('select[name="categoriaId"]');
   const statusSel = form.querySelector('select[name="status"]');
-  const formaSel = form.querySelector('select[name="formaPagamento"]');
+  const formaSel = form.querySelector('select[name="condicaoPagamentoId"]');
   const pagamentoEl = getField(form, "pagamento");
   const pessoaEl = document.getElementById("finPessoa");
   const entidadeEl = document.getElementById("finEntidadeId");
@@ -971,11 +974,13 @@ function configurarFormLancamento(form, row) {
     statusSel.value = "pendente";
     getField(form, "emissao").value = today();
     getField(form, "vencimento").value = today();
-  } else if (formaSel) {
-    // Forma de pagamento antiga que não está na lista continua aparecendo.
-    const forma = String(row.formaPagamento || "");
-    if (forma && ![...formaSel.options].some((o) => o.value === forma)) formaSel.add(new Option(forma, forma));
-    formaSel.value = forma;
+  }
+  // Formas de pagamento vêm do cadastro (ativas + a atual do lançamento, se inativa).
+  if (formaSel) {
+    const textoAntigo = row && !row.condicaoPagamentoId && row.formaPagamento ? `Não informada (antiga: ${row.formaPagamento})` : "Não informada";
+    formaSel.innerHTML = `<option value="">${escapeHtml(textoAntigo)}</option>` + condicoesAtivas(row?.condicaoPagamentoId)
+      .map((c) => `<option value="${escapeAttr(c.id)}">${escapeHtml(c.Descricao)}${String(c.Status).toLowerCase() === "inativo" ? " (inativa)" : ""}</option>`).join("");
+    formaSel.value = row?.condicaoPagamentoId ? String(row.condicaoPagamentoId) : "";
   }
 
   // Categorias vêm da tabela financeiroCategoria, filtradas pelo tipo escolhido.
@@ -1003,7 +1008,7 @@ function configurarFormLancamento(form, row) {
 
   if (origemInfo && row?.origem === "venda") {
     origemInfo.hidden = false;
-    origemInfo.textContent = `Gerado automaticamente pela venda ${row.pedidoNumero || ""} (faturada a ${row.formaPagamento || "prazo"}).`;
+    origemInfo.textContent = `Gerado automaticamente pela venda ${row.pedidoNumero || ""} (forma de pagamento: ${nomeCondicao(row, "formaPagamento") || "não informada"}).`;
   } else if (origemInfo && row?.origem === "migrado") {
     origemInfo.hidden = false;
     origemInfo.textContent = "Importado das abas antigas (Entradas e saídas, Pagar e receber ou Boletos).";
@@ -1079,6 +1084,29 @@ function configurarFormLancamento(form, row) {
     if (!sugestoes.contains(document.activeElement)) ocultar();
   }, 150));
   mostrarInfo();
+}
+
+// ===== Formulário da forma/condição de pagamento =====
+function configurarFormCondicao(form, row) {
+  const parcelasEl = getField(form, "QuantidadeParcelas");
+  const prazoEl = getField(form, "PrazoMedio");
+  const previa = document.getElementById("condicaoPrevia");
+  const dica = document.getElementById("condicaoPreviaDica");
+  if (!row) {
+    parcelasEl.value = "1";
+    prazoEl.value = "0";
+    form.querySelector('select[name="Status"]').value = "Ativo";
+  }
+  const atualizar = () => {
+    const dias = diasParcelas(parcelasEl.value, prazoEl.value);
+    previa.textContent = descreverVencimentos({ QuantidadeParcelas: parcelasEl.value, PrazoMedio: prazoEl.value });
+    dica.textContent = dias.length
+      ? `Ao faturar a venda, gera ${dias.length} título(s) a receber no Financeiro, vencendo em ${dias.join(", ")} dias.`
+      : "Prazo médio 0: à vista. Ao faturar a venda, gera 1 lançamento no Financeiro vencendo no dia (já recebido se a venda for \"Pago e faturado\").";
+  };
+  parcelasEl.addEventListener("input", atualizar);
+  prazoEl.addEventListener("input", atualizar);
+  atualizar();
 }
 
 async function removeRow(kind, id) {

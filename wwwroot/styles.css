@@ -2122,3 +2122,224 @@ label.campo-inativo {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* ===== Formas / condições de pagamento ===== */
+.condicoes-tabela .num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.condicao-inativa td:not(.fin-acoes) {
+  opacity: 0.6;
+}
+
+.condicao-aviso {
+  margin: 0 0 12px;
+  color: var(--bad);
+}
+
+.condicao-previa {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  background: var(--subtle);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.condicao-previa span {
+  color: var(--faint);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.condicao-previa strong {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+#pagamentoVendaDica {
+  display: block;
+  margin-top: 6px;
+  font-weight: 400;
+}
+
+/* Lançamentos do Financeiro no detalhe da venda */
+.venda-financeiro {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.venda-financeiro-topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.venda-financeiro .badge {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.venda-financeiro .badge.ok { color: var(--ok); }
+.venda-financeiro .badge.warn { color: var(--warn); }
+.venda-financeiro .badge.bad { color: var(--bad); }
+
+.venda-financeiro .fin-sub {
+  display: block;
+  color: var(--faint);
+  font-size: 12px;
+}
+
+/* Filtro de situação na lista de vendas */
+.venda-filtros {
+  margin-bottom: 16px;
+}
+
+.venda-chip-qtd {
+  display: inline-block;
+  min-width: 20px;
+  margin-left: 4px;
+  padding: 0 6px;
+  font-size: 12px;
+  line-height: 18px;
+  border-radius: 9px;
+  background: var(--line);
+  font-variant-numeric: tabular-nums;
+}
+
+.venda-detalhe-topo .badge.ok { color: var(--ok); }
+.venda-detalhe-topo .badge.warn { color: var(--warn); }
+.venda-detalhe-topo .badge.bad { color: var(--bad); }
+
+/* ===== Menu lateral e cabeçalho fixos (telas largas) ===== */
+.modal-back {
+  z-index: 50;
+}
+
+@media (min-width: 801px) {
+  aside {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+  }
+
+  header.top {
+    position: sticky;
+    top: 0;
+    z-index: 15;
+    margin: -22px -24px 16px;
+    padding: 22px 24px 12px;
+    background: var(--bg);
+    transition: box-shadow 0.15s ease;
+  }
+
+  .rolado header.top {
+    box-shadow: 0 1px 0 var(--line);
+  }
+
+  /* Na lista de vendas, filtros e pesquisa ficam fixos logo abaixo do cabeçalho. */
+  .venda-filtros {
+    position: sticky;
+    top: var(--altura-topo, 0px);
+    z-index: 14;
+    margin: -16px -24px 16px;
+    padding: 4px 24px 12px;
+    background: var(--bg);
+  }
+
+  .rolado main:has(.venda-filtros) header.top {
+    box-shadow: none;
+  }
+
+  .rolado .venda-filtros {
+    box-shadow: 0 1px 0 var(--line);
+  }
+}
+
+/* ===== Paginação ===== */
+.paginacao {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin-top: 16px;
+}
+
+.paginacao-info {
+  margin: 12px 0 0;
+  color: var(--faint);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.paginacao .paginacao-info {
+  margin: 0;
+}
+
+.paginacao-botoes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.paginacao-btn {
+  min-width: 36px;
+  height: 36px;
+  padding: 0 10px;
+  font-size: 14px;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.paginacao-btn:hover:not(:disabled) {
+  background: var(--subtle);
+}
+
+.paginacao-btn.ativo {
+  color: var(--accent-fg);
+  font-weight: 600;
+  background: var(--accent);
+  border-color: transparent;
+}
+
+.paginacao-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.paginacao-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.paginacao-reticencias {
+  padding: 0 4px;
+  color: var(--faint);
+}
+
+/* Aviso antes de cancelar o pedido */
+.venda-cancelar-aviso {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--bad);
+  border-radius: 12px;
+}
+
+.venda-cancelar-aviso ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+}

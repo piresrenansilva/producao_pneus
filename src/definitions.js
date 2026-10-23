@@ -63,11 +63,20 @@ const tables = {
   },
   pedidos: {
     table: 'pedidos',
-    columns: [RO('numero'), T('data'), S('cliente', 150), S('pagamento', 30), S('status', 30), S('vendedor', 100), T('previsao'), S('obs', 500), G('clienteId'), G('veiculoId'), M('descontoPercentual'), M('descontoValor'), S('box', 100), T('agendamento'), S('horario', 10)]
+    columns: [RO('numero'), T('data'), S('cliente', 150), S('pagamento', 100), I('condicaoPagamentoId'), S('status', 30), S('vendedor', 100), T('previsao'), S('obs', 500), G('clienteId'), G('veiculoId'), M('descontoPercentual'), M('descontoValor'), S('box', 100), T('agendamento'), S('horario', 10)]
   },
   itens: {
     table: 'pedido_itens',
     columns: [G('pedidoId'), S('produtoId', 50), S('descricao', 200), S('medida', 50), I('qtd'), M('unitario'), S('tipo', 20), G('produtoRef'), G('servicoRef')]
+  },
+  // Formas/condições de pagamento. A chave é Codigo (identity), exposta como id para a tela.
+  // Gravação e exclusão passam por saveCondicaoPagamento/deleteCondicaoPagamento.
+  condicoesPagamento: {
+    table: 'CondicoesPagamento',
+    key: 'Codigo',
+    orderBy: 't.[Codigo]',
+    extras: ['Codigo'],
+    columns: [S('Descricao', 100), S('Tipo', 40), I('QuantidadeParcelas'), I('PrazoMedio'), S('Status', 30)]
   },
   // Financeiro unificado (substitui as antigas rotas financeiro, contas e boletos,
   // cujas tabelas continuam no banco apenas como cópia dos dados migrados).
@@ -84,7 +93,7 @@ const tables = {
     joins: 'LEFT JOIN dbo.[financeiroCategoria] fc ON fc.[id] = t.[categoriaId] LEFT JOIN dbo.[pedidos] pe ON pe.[id] = t.[pedidoId]',
     computed: { categoria: 'fc.[nome]', pedidoNumero: 'pe.[numero]' },
     extras: ['codigo'],
-    columns: [S('tipo', 10), I('categoriaId'), G('entidadeId'), S('pessoa', 150), S('descricao', 200), S('documento', 100), M('valor'), T('emissao'), T('vencimento'), T('pagamento'), S('formaPagamento', 30), S('status', 20), S('obs', 500), RO('origem', 's', 20), RO('pedidoId', 'g')]
+    columns: [S('tipo', 10), I('categoriaId'), G('entidadeId'), S('pessoa', 150), S('descricao', 200), S('documento', 100), M('valor'), T('emissao'), T('vencimento'), T('pagamento'), S('formaPagamento', 100), I('condicaoPagamentoId'), S('status', 20), S('obs', 500), RO('origem', 's', 20), RO('pedidoId', 'g')]
   },
   carcacaOrdens: {
     table: 'carcaca_ordens',

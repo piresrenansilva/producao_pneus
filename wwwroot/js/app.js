@@ -15,17 +15,17 @@ function render() {
   const [title, lede] = TITLES[page];
   document.getElementById("title").textContent = title;
   document.getElementById("lede").textContent = lede;
-  const creates = { clientes: "Cadastrar entidade", veiculos: "Cadastrar veículo", servicos: "Cadastrar serviço", produtos: "Cadastrar produto", carcacas: "Novo apontamento", estoque: "Novo item", producao: "Novo apontamento", cargas: "Novo movimento", vendas: "Novo pedido", financeiro: "Novo lançamento" };
+  const creates = { clientes: "Cadastrar entidade", veiculos: "Cadastrar veículo", servicos: "Cadastrar serviço", produtos: "Cadastrar produto", carcacas: "Novo apontamento", estoque: "Novo item", producao: "Novo apontamento", cargas: "Novo movimento", vendas: "Novo pedido", financeiro: "Novo lançamento", condicoesPagamento: "Nova forma de pagamento" };
   actions.innerHTML = creates[page] ? `<button class="btn" id="addBtn">${creates[page]}</button>` : "";
   addLogoutButton();
   view.innerHTML = views[page]();
   const add = document.getElementById("addBtn");
   if (add) add.onclick = () => page === "vendas" ? iniciarPedido() : openForm(({ carcacas: "carcacaOrdens", financeiro: "lancamentos" })[page] || page);
   const q = document.getElementById("q");
-  if (q) q.oninput = () => { query = q.value; const pos = q.selectionStart; render(); const next = document.getElementById("q"); if (next) { next.focus(); next.selectionStart = next.selectionEnd = pos; } };
+  if (q) q.oninput = () => { query = q.value; vendaPagina = 1; const pos = q.selectionStart; render(); const next = document.getElementById("q"); if (next) { next.focus(); next.selectionStart = next.selectionEnd = pos; } };
   view.querySelectorAll("[data-edit]").forEach((b) => b.onclick = () => {
     const [kind, id] = b.dataset.edit.split(":");
-    openForm(kind, db[kind].find((row) => row.id === id));
+    openForm(kind, db[kind].find((row) => sameId(row.id, id)));
   });
   view.querySelectorAll("[data-pdf-carcaca]").forEach((b) => b.onclick = async () => {
     const textoOriginal = b.textContent;
@@ -36,6 +36,12 @@ function render() {
     finally { b.disabled = false; b.textContent = textoOriginal; }
   });
   if (page === "financeiro") ligarFinanceiro(view);
+  view.querySelectorAll("[data-venda-filtro]").forEach((b) => b.onclick = () => { vendaFiltro = b.dataset.vendaFiltro; vendaPagina = 1; render(); });
+  view.querySelectorAll("[data-venda-pagina]").forEach((b) => b.onclick = () => {
+    vendaPagina = Number(b.dataset.vendaPagina) || 1;
+    render();
+    window.scrollTo({ top: 0 });
+  });
   view.querySelectorAll("[data-del]").forEach((b) => b.onclick = () => {
     const [kind, id] = b.dataset.del.split(":");
     removeRow(kind, id);
@@ -178,18 +184,39 @@ const views = {
   }); },
   vendas() {
     const q = query.toLowerCase();
-    const lista = db.pedidos.filter((p) => !q || `${p.numero} ${p.cliente} ${p.pagamento} ${p.status} ${p.vendedor}`.toLowerCase().includes(q));
-    return `<div class="toolbar"><input id="q" placeholder="Filtrar por cliente, número ou status" value="${escapeAttr(query)}" /></div>
-      ${lista.map((p) => `<button class="pedido pedido-listagem" data-open="${p.id}" type="button">
-        <div class="back" style="justify-content:space-between"><span class="mono">${escapeHtml(p.numero)}</span>${badge(p.status)}</div>
+    const situacoes = new Map(db.pedidos.map((p) => [p.id, situacaoVenda(p)]));
+    const contar = (filtro) => db.pedidos.filter((p) => filtro === "todas" || situacoes.get(p.id).chave === filtro).length;
+    const chip = (valor, rotulo) => {
+      const ativo = vendaFiltro === valor;
+      return `<button type="button" class="fin-chip${ativo ? " ativo" : ""}" aria-pressed="${ativo}" data-venda-filtro="${valor}">${rotulo} <span class="venda-chip-qtd">${contar(valor)}</span></button>`;
+    };
+    const lista = db.pedidos
+      .filter((p) => vendaFiltro === "todas" || situacoes.get(p.id).chave === vendaFiltro)
+      .filter((p) => !q || `${p.numero} ${p.cliente} ${nomeCondicao(p)} ${p.status} ${situacoes.get(p.id).rotulo} ${p.vendedor}`.toLowerCase().includes(q));
+    const vazio = vendaFiltro === "todas" && !q ? "Nenhum pedido." : "Nenhum pedido com esse filtro.";
+    const totalPaginas = Math.max(1, Math.ceil(lista.length / VENDAS_POR_PAGINA));
+    vendaPagina = Math.min(Math.max(1, vendaPagina), totalPaginas);
+    const inicio = (vendaPagina - 1) * VENDAS_POR_PAGINA;
+    const paginaAtual = lista.slice(inicio, inicio + VENDAS_POR_PAGINA);
+    return `<div class="fin-filtros venda-filtros">
+        <div class="fin-chips" role="group" aria-label="Situação da venda">${chip("todas", "Todas")}${chip("orcamento", "Orçamento")}${chip("apagar", "Faturado a pagar")}${chip("pago", "Faturado pago")}${chip("cancelado", "Cancelados")}</div>
+        <label class="fin-busca">Pesquisar<input id="q" type="search" placeholder="Cliente, número ou forma de pagamento" value="${escapeAttr(query)}" /></label>
+      </div>
+      ${paginaAtual.map((p) => {
+        const situacao = situacoes.get(p.id);
+        return `<button class="pedido pedido-listagem" data-open="${p.id}" type="button">
+        <div class="back" style="justify-content:space-between"><span class="mono">${escapeHtml(p.numero)}</span><span class="badge ${situacao.tom}">${escapeHtml(situacao.rotulo)}</span></div>
         <h3>${escapeHtml(p.cliente)}</h3>
         <dl class="capa">
           <div><dt>Data</dt><dd>${br(p.data)}</dd></div>
-          <div><dt>Pagamento</dt><dd>${escapeHtml(p.pagamento)}</dd></div>
+          <div><dt>Pagamento</dt><dd>${escapeHtml(nomeCondicao(p) || "—")}</dd></div>
           <div><dt>Itens</dt><dd class="num">${p.itens.length}</dd></div>
           <div><dt>Total</dt><dd class="num">${money(totalPedido(p))}</dd></div>
+          ${situacao.chave === "apagar" && situacao.emAberto > 0 ? `<div><dt>Em aberto</dt><dd class="num">${money(situacao.emAberto)}</dd></div>` : ""}
         </dl>
-      </button>`).join("") || `<p class="hint">Nenhum pedido.</p>`}`;
+      </button>`;
+      }).join("") || `<p class="hint">${vazio}</p>`}
+      ${paginacaoMarkup(vendaPagina, totalPaginas, lista.length, inicio, paginaAtual.length, "data-venda-pagina")}`;
   },
   financeiro() {
     const lancamentos = db.lancamentos || [];
@@ -246,7 +273,7 @@ const views = {
       ${lista.map((l) => {
         const situacao = situacaoLancamento(l);
         const aberto = situacao === "pendente" || situacao === "vencido";
-        const detalhes = [l.documento ? `Doc. ${l.documento}` : "", l.pedidoNumero ? `Venda ${l.pedidoNumero}` : "", l.codigo].filter(Boolean).join(" · ");
+        const detalhes = [l.documento ? `Doc. ${l.documento}` : "", l.pedidoNumero ? `Venda ${l.pedidoNumero}` : "", nomeCondicao(l, "formaPagamento"), l.codigo].filter(Boolean).join(" · ");
         const entidade = db.clientes.find((c) => sameId(c.id, l.entidadeId));
         return `<tr class="fin-linha ${situacao}">
           <td>${br(l.vencimento)}</td>
@@ -265,6 +292,34 @@ const views = {
       <div class="fin-rodape"><span>${lista.length} lançamento(s)</span><span>A receber: <strong>${money(listaReceber)}</strong></span><span>A pagar: <strong>${money(listaPagar)}</strong></span><span>Diferença: <strong>${money(listaReceber - listaPagar)}</strong></span></div>
     </section>`;
   },
+  condicoesPagamento() {
+    const condicoes = db.condicoesPagamento || [];
+    const busca = normalizarBuscaEntidade(query.trim());
+    const lista = condicoes.filter((c) => !busca || normalizarBuscaEntidade([c.Codigo, c.Descricao, c.Tipo, c.Status, descreverVencimentos(c)].join(" ")).includes(busca));
+    const usos = (c) => db.pedidos.filter((p) => sameId(p.condicaoPagamentoId, c.id)).length;
+    const ativas = condicoes.filter((c) => String(c.Status || "").toLowerCase() !== "inativo").length;
+    return `<div class="toolbar"><input id="q" type="search" placeholder="Filtrar por descrição, tipo ou status" value="${escapeAttr(query)}" /></div>
+    ${ativas ? "" : `<p class="hint condicao-aviso">Nenhuma forma de pagamento ativa: cadastre ou ative uma para conseguir concluir vendas.</p>`}
+    <div class="table-wrap"><table class="condicoes-tabela"><thead><tr>
+      <th>Código</th><th>Descrição</th><th>Tipo</th><th class="num">Parcelas</th><th class="num">Prazo médio</th><th>Vencimentos</th><th class="num">Vendas</th><th>Status</th><th></th>
+    </tr></thead><tbody>
+    ${lista.map((c) => {
+      const ativa = String(c.Status || "").toLowerCase() !== "inativo";
+      return `<tr class="${ativa ? "" : "condicao-inativa"}">
+        <td>${escapeHtml(c.Codigo)}</td>
+        <td><strong>${escapeHtml(c.Descricao)}</strong></td>
+        <td>${escapeHtml(c.Tipo)}</td>
+        <td class="num">${escapeHtml(c.QuantidadeParcelas)}</td>
+        <td class="num">${Number(c.PrazoMedio) ? `${escapeHtml(c.PrazoMedio)} dias` : "—"}</td>
+        <td>${escapeHtml(descreverVencimentos(c))}</td>
+        <td class="num">${usos(c)}</td>
+        <td><span class="badge ${ativa ? "ok" : "bad"}">${ativa ? "Ativo" : "Inativo"}</span></td>
+        <td class="fin-acoes"><button class="btn ghost small" type="button" data-edit="condicoesPagamento:${escapeAttr(c.id)}">Editar</button>
+          <button class="btn danger small" type="button" data-del="condicoesPagamento:${escapeAttr(c.id)}">Excluir</button></td>
+      </tr>`;
+    }).join("") || `<tr><td colspan="9">${condicoes.length ? "Nenhuma forma de pagamento com esse filtro." : "Nenhuma forma de pagamento cadastrada."}</td></tr>`}
+    </tbody></table></div>`;
+  },
   clientes() { return table("clientes", ["Código", "Nome / Razão social", "Tipo", "CPF / CNPJ", "Telefone", "E-mail", "Cidade / UF", "Status"], (r) => [
     escapeHtml(r.codigo || r.id), escapeHtml(r.nome), escapeHtml(r.tipo), escapeHtml(r.documento), escapeHtml(r.telefone), escapeHtml(r.email),
     escapeHtml([r.cidade, r.estado].filter(Boolean).join(" / ")), badge(r.status)
@@ -274,6 +329,40 @@ const views = {
 
 // ===== Financeiro: situação, ordenação e ações da lista =====
 // pendente com vencimento já passado aparece como "vencido".
+// Paginação: "Mostrando 21–40 de 57" + Anterior · 1 … 4 5 6 … 9 · Próxima.
+function paginacaoMarkup(atual, totalPaginas, totalItens, inicio, naPagina, atributo) {
+  if (totalPaginas <= 1) return totalItens ? `<p class="paginacao-info">${totalItens} pedido(s)</p>` : "";
+  const numeros = [];
+  for (let n = 1; n <= totalPaginas; n++) {
+    if (n === 1 || n === totalPaginas || Math.abs(n - atual) <= 1) numeros.push(n);
+    else if (numeros[numeros.length - 1] !== "…") numeros.push("…");
+  }
+  const numero = (n) => `<button type="button" class="paginacao-btn${n === atual ? " ativo" : ""}" ${atributo}="${n}" ${n === atual ? 'aria-current="page"' : ""}>${n}</button>`;
+  const seta = (n, rotulo, desabilitado) => `<button type="button" class="paginacao-btn" ${atributo}="${n}" ${desabilitado ? "disabled" : ""}>${rotulo}</button>`;
+  return `<div class="paginacao" role="navigation" aria-label="Paginação">
+    <span class="paginacao-info">Mostrando ${inicio + 1}–${inicio + naPagina} de ${totalItens}</span>
+    <div class="paginacao-botoes">
+      ${seta(atual - 1, "← Anterior", atual === 1)}
+      ${numeros.map((n) => n === "…" ? `<span class="paginacao-reticencias">…</span>` : numero(n)).join("")}
+      ${seta(atual + 1, "Próxima →", atual === totalPaginas)}
+    </div>
+  </div>`;
+}
+
+// Situação da venda para o filtro: orçamento, faturado a pagar, faturado pago ou cancelado.
+// "Faturado pago" = venda marcada como paga ou com todos os lançamentos do Financeiro recebidos.
+function situacaoVenda(pedido) {
+  const status = String(pedido?.status || "").toLowerCase();
+  if (status === "cancelado") return { chave: "cancelado", rotulo: "cancelado", tom: "bad", emAberto: 0 };
+  if (status === "orçamento" || status === "orcamento") return { chave: "orcamento", rotulo: "orçamento", tom: "warn", emAberto: 0 };
+  const titulos = (db.lancamentos || []).filter((l) => sameId(l.pedidoId, pedido.id) && String(l.status || "").toLowerCase() !== "cancelado");
+  const abertos = titulos.filter((l) => String(l.status || "").toLowerCase() !== "pago");
+  if (status === "pago" || (titulos.length && !abertos.length)) return { chave: "pago", rotulo: "faturado · pago", tom: "ok", emAberto: 0 };
+  const emAberto = abertos.length ? abertos.reduce((soma, l) => soma + (Number(l.valor) || 0), 0) : totalPedido(pedido);
+  const vencido = abertos.some((l) => situacaoLancamento(l) === "vencido");
+  return { chave: "apagar", rotulo: vencido ? "faturado · a pagar (vencido)" : "faturado · a pagar", tom: vencido ? "bad" : "warn", emAberto };
+}
+
 function situacaoLancamento(lancamento) {
   const status = String(lancamento?.status || "").toLowerCase();
   if (status === "pago" || status === "cancelado") return status;
@@ -461,3 +550,15 @@ document.addEventListener("DOMContentLoaded", () => {
     showLoginOverlay();
   }
 });
+
+// Topo fixo: mede a altura do cabeçalho para a barra de filtros das vendas
+// grudar logo abaixo dele, e marca a página como "rolada" para mostrar a divisória.
+(function topoFixo() {
+  const header = document.querySelector("header.top");
+  if (!header) return;
+  const medir = () => document.documentElement.style.setProperty("--altura-topo", `${header.offsetHeight}px`);
+  if (typeof ResizeObserver === "function") new ResizeObserver(medir).observe(header);
+  window.addEventListener("resize", medir);
+  window.addEventListener("scroll", () => document.body.classList.toggle("rolado", window.scrollY > 4), { passive: true });
+  medir();
+})();

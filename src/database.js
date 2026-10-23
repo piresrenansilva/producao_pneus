@@ -255,7 +255,23 @@ async function executeMigrations(pool) {
         nome nvarchar(100) NOT NULL CONSTRAINT PK_migracoes_dados PRIMARY KEY,
         aplicadaEm datetime2 NOT NULL CONSTRAINT DF_migracoes_dados_aplicadaEm DEFAULT SYSDATETIME()
       );`,
-    financeiroUnificadoMigration
+    financeiroUnificadoMigration,
+    // ---- Formas/condições de pagamento ----
+    String.raw`IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.pedidos') AND name = 'pagamento' AND max_length BETWEEN 1 AND 199)
+      ALTER TABLE dbo.pedidos ALTER COLUMN pagamento nvarchar(100) NULL;`,
+    String.raw`IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.financeiro_lancamentos') AND name = 'formaPagamento' AND max_length BETWEEN 1 AND 199)
+      ALTER TABLE dbo.financeiro_lancamentos ALTER COLUMN formaPagamento nvarchar(100) NULL;`,
+    String.raw`IF COL_LENGTH('dbo.pedidos', 'condicaoPagamentoId') IS NULL
+      ALTER TABLE dbo.pedidos ADD condicaoPagamentoId int NULL;`,
+    String.raw`IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_pedidos_condicaoPagamento')
+      ALTER TABLE dbo.pedidos ADD CONSTRAINT FK_pedidos_condicaoPagamento
+        FOREIGN KEY (condicaoPagamentoId) REFERENCES dbo.CondicoesPagamento (Codigo);`,
+    String.raw`IF COL_LENGTH('dbo.financeiro_lancamentos', 'condicaoPagamentoId') IS NULL
+      ALTER TABLE dbo.financeiro_lancamentos ADD condicaoPagamentoId int NULL;`,
+    String.raw`IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_financeiro_lancamentos_condicao')
+      ALTER TABLE dbo.financeiro_lancamentos ADD CONSTRAINT FK_financeiro_lancamentos_condicao
+        FOREIGN KEY (condicaoPagamentoId) REFERENCES dbo.CondicoesPagamento (Codigo);`,
+    condicoesPagamentoMigration
   ];
   for (const [index, statement] of migrations.entries()) {
     await pool.request().query(statement);
@@ -339,6 +355,68 @@ BEGIN
     OUTER APPLY (SELECT CASE WHEN busca.quantidade = 1 THEN CAST(busca.idTexto AS uniqueidentifier) END AS id) ent;
 
   INSERT INTO dbo.migracoes_dados (nome) VALUES (N'financeiro-unificado');
+  COMMIT TRANSACTION;
+END`;
+
+// Formas de pagamento padrão (uma única vez) e vínculo das vendas/lançamentos
+// antigos, que guardavam a forma só como texto (pix, dinheiro, cartão, boleto, a prazo).
+// "boleto" e "a prazo" viram condições de 30 dias, como o sistema já fazia.
+const condicoesPagamentoMigration = String.raw`IF NOT EXISTS (SELECT 1 FROM dbo.migracoes_dados WHERE nome = N'condicoes-pagamento')
+BEGIN
+  SET XACT_ABORT ON;
+  BEGIN TRANSACTION;
+
+  INSERT INTO dbo.CondicoesPagamento (Descricao, Tipo, QuantidadeParcelas, PrazoMedio)
+  SELECT v.Descricao, v.Tipo, v.QuantidadeParcelas, v.PrazoMedio
+  FROM (VALUES
+    (N'Dinheiro', N'Dinheiro', 1, 0),
+    (N'PIX', N'PIX', 1, 0),
+    (N'Cartão de débito', N'Cartão de débito', 1, 0),
+    (N'Cartão de crédito', N'Cartão de crédito', 1, 0),
+    (N'Transferência', N'Transferência', 1, 0),
+    (N'Boleto 30 dias', N'Boleto', 1, 30),
+    (N'Boleto 30/60/90', N'Boleto', 3, 60),
+    (N'A prazo 30 dias', N'Crediário', 1, 30)
+  ) v (Descricao, Tipo, QuantidadeParcelas, PrazoMedio)
+  WHERE NOT EXISTS (SELECT 1 FROM dbo.CondicoesPagamento c WHERE c.Descricao = v.Descricao);
+
+  UPDATE p SET condicaoPagamentoId = cp.Codigo
+  FROM dbo.pedidos p
+  JOIN dbo.CondicoesPagamento cp ON cp.Descricao =
+    CASE LOWER(LTRIM(RTRIM(p.pagamento)))
+      WHEN N'boleto' THEN N'Boleto 30 dias'
+      WHEN N'pix' THEN N'PIX'
+      WHEN N'dinheiro' THEN N'Dinheiro'
+      WHEN N'cartão' THEN N'Cartão de crédito'
+      WHEN N'cartao' THEN N'Cartão de crédito'
+      WHEN N'a prazo' THEN N'A prazo 30 dias'
+      ELSE LTRIM(RTRIM(p.pagamento))
+    END
+  WHERE p.condicaoPagamentoId IS NULL AND NULLIF(LTRIM(RTRIM(p.pagamento)), N'') IS NOT NULL;
+
+  -- Títulos gerados por venda herdam a condição do pedido.
+  UPDATE l SET condicaoPagamentoId = p.condicaoPagamentoId
+  FROM dbo.financeiro_lancamentos l
+  JOIN dbo.pedidos p ON p.id = l.pedidoId
+  WHERE l.condicaoPagamentoId IS NULL AND p.condicaoPagamentoId IS NOT NULL;
+
+  UPDATE l SET condicaoPagamentoId = cp.Codigo, formaPagamento = cp.Descricao
+  FROM dbo.financeiro_lancamentos l
+  JOIN dbo.CondicoesPagamento cp ON cp.Descricao =
+    CASE LOWER(LTRIM(RTRIM(l.formaPagamento)))
+      WHEN N'boleto' THEN N'Boleto 30 dias'
+      WHEN N'pix' THEN N'PIX'
+      WHEN N'dinheiro' THEN N'Dinheiro'
+      WHEN N'cartão' THEN N'Cartão de crédito'
+      WHEN N'cartao' THEN N'Cartão de crédito'
+      WHEN N'transferência' THEN N'Transferência'
+      WHEN N'transferencia' THEN N'Transferência'
+      WHEN N'a prazo' THEN N'A prazo 30 dias'
+      ELSE LTRIM(RTRIM(l.formaPagamento))
+    END
+  WHERE l.condicaoPagamentoId IS NULL AND NULLIF(LTRIM(RTRIM(l.formaPagamento)), N'') IS NOT NULL;
+
+  INSERT INTO dbo.migracoes_dados (nome) VALUES (N'condicoes-pagamento');
   COMMIT TRANSACTION;
 END`;
 

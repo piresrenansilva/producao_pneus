@@ -21,7 +21,7 @@ const totalPecasPedido = (pedido) => (pedido?.itens || []).reduce((soma, item) =
 }, 0);
 const overdue = (date, status) => date && !["pago", "paga", "cancelado", "cancelada"].includes(status) && date < today();
 
-let db = { clientes: [], veiculos: [], servicos: [], produtos: [], carcacas: [], carcacaOrdens: [], estoque: [], producao: [], cargas: [], pedidos: [], lancamentos: [], financeiroCategoria: [] };
+let db = { clientes: [], veiculos: [], servicos: [], produtos: [], carcacas: [], carcacaOrdens: [], estoque: [], producao: [], cargas: [], pedidos: [], lancamentos: [], financeiroCategoria: [], condicoesPagamento: [] };
 let page = "painel";
 let pedidoId = null;
 let editingPedidoId = null;
@@ -32,6 +32,9 @@ let query = "";
 let confirmDelete = "";
 // Filtros da aba Financeiro (tipo: todos|receber|pagar; situacao: todos|abertos|vencidos|pagos|cancelados).
 let finFiltro = { tipo: "todos", situacao: "todos", categoria: "" };
+let vendaFiltro = "todas"; // todas | orcamento | apagar | pago | cancelado
+let vendaPagina = 1;
+const VENDAS_POR_PAGINA = 20;
 
 // ===== MÁSCARA DE PREÇO (digitação da direita para a esquerda) =====
 function formatarPrecoDigitos(digitos) {
@@ -182,7 +185,7 @@ async function api(url, options = {}) {
 
 async function load() {
   db = await api("/api/dados");
-  for (const key of ["clientes", "veiculos", "servicos", "produtos", "carcacas", "carcacaOrdens", "estoque", "producao", "cargas", "pedidos", "lancamentos", "financeiroCategoria"])
+  for (const key of ["clientes", "veiculos", "servicos", "produtos", "carcacas", "carcacaOrdens", "estoque", "producao", "cargas", "pedidos", "lancamentos", "financeiroCategoria", "condicoesPagamento"])
     if (!Array.isArray(db[key])) db[key] = [];
   db.pedidos = db.pedidos.map((p) => ({ ...p, itens: p.itens || [] }));
   db.carcacaOrdens = db.carcacaOrdens.map((o) => ({ ...o, itens: o.itens || [] }));
@@ -214,7 +217,7 @@ function escapeHtml(value) {
 
 const NAV = [
   ["painel", "Painel"], ["clientes", "Entidades"], ["veiculos", "Veículos"], ["produtos", "Produtos"], ["servicos", "Serviços"], ["carcacas", "Carcaças"], ["estoque", "Estoque"], ["producao", "Produção"],
-  ["vendas", "Vendas"], ["cargas", "Carga e descarga"], ["financeiro", "Financeiro"]
+  ["vendas", "Vendas"], ["cargas", "Carga e descarga"], ["financeiro", "Financeiro"], ["condicoesPagamento", "Formas de pagamento"]
 ];
 const TITLES = {
   painel: ["Painel", "Todos os indicadores."],
@@ -227,8 +230,39 @@ const TITLES = {
   producao: ["Produção", "Apontamento por turno, medida e operador."],
   cargas: ["Carga e descarga", "Entrada e saída de pátio."],
   vendas: ["Vendas", "Monte pedidos com entidades cadastradas e produtos do catálogo."],
-  financeiro: ["Financeiro", "Contas a receber e a pagar, boletos de clientes e da empresa, despesas e caixa."]
+  financeiro: ["Financeiro", "Contas a receber e a pagar, boletos de clientes e da empresa, despesas e caixa."],
+  condicoesPagamento: ["Formas de pagamento", "Condições usadas nas vendas e no Financeiro. Ao faturar a venda, o lançamento entra no Financeiro: à vista vence no dia; a prazo, uma parcela por vencimento."]
 };
+
+// ===== Formas / condições de pagamento =====
+const TIPOS_CONDICAO_PAGAMENTO = ["Dinheiro", "PIX", "Cartão de crédito", "Cartão de débito", "Boleto", "Transferência", "Cheque", "Crediário", "Outros"];
+
+// Mesma regra do servidor: parcelas iguais, a cada intervalo, com média = prazo médio.
+// Ex.: 3 parcelas e prazo médio 60 -> [30, 60, 90]. Prazo 0 (à vista) -> [].
+function diasParcelas(quantidade, prazoMedio) {
+  const n = Math.max(1, Math.floor(Number(quantidade) || 1));
+  const prazo = Math.max(0, Math.floor(Number(prazoMedio) || 0));
+  if (!prazo) return [];
+  const intervalo = Math.max(1, Math.round((2 * prazo) / (n + 1)));
+  return Array.from({ length: n }, (_, indice) => intervalo * (indice + 1));
+}
+
+function descreverVencimentos(condicao) {
+  const dias = diasParcelas(condicao?.QuantidadeParcelas, condicao?.PrazoMedio);
+  if (!dias.length) return "À vista";
+  return `${dias.length}x · ${dias.join("/")} dias`;
+}
+
+function condicoesAtivas(atualId) {
+  return (db.condicoesPagamento || []).filter((c) =>
+    String(c.Status || "").toLowerCase() !== "inativo" || (atualId != null && sameId(c.id, atualId)));
+}
+
+// Nome da forma de pagamento de um pedido/lançamento: lê do cadastro e, para registros antigos, usa o texto gravado.
+function nomeCondicao(registro, campoTexto = "pagamento") {
+  const condicao = (db.condicoesPagamento || []).find((c) => sameId(c.id, registro?.condicaoPagamentoId));
+  return condicao?.Descricao || registro?.[campoTexto] || "";
+}
 
 function tone(status) {
   const s = (status || "").toLowerCase();

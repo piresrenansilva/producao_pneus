@@ -1,7 +1,16 @@
+// Forma sugerida para uma venda nova: PIX, se existir e estiver ativa; senão a primeira ativa à vista; senão a primeira ativa.
+function condicaoPadraoVenda() {
+  const ativas = condicoesAtivas();
+  const escolhida = ativas.find((c) => String(c.Descricao || "").trim().toLowerCase() === "pix")
+    || ativas.find((c) => !diasParcelas(c.QuantidadeParcelas, c.PrazoMedio).length)
+    || ativas[0];
+  return escolhida ? String(escolhida.id) : "";
+}
+
 function iniciarPedido() {
   editingPedidoId = null;
   vendaRascunho = {
-    clienteId: "", veiculoId: "", data: today(), pagamento: "pix", vendedor: "", previsao: "",
+    clienteId: "", veiculoId: "", data: today(), condicaoPagamentoId: condicaoPadraoVenda(), vendedor: "", previsao: "",
     obs: "", box: "", agendamento: "", horario: "", status: "orçamento", descontoPercentual: 0, itens: []
   };
   etapaVenda = 1;
@@ -47,7 +56,7 @@ function editarOrcamento(pedido) {
     clienteBusca: cliente.nome,
     veiculoId: db.veiculos.find((veiculo) => sameId(veiculo.id, pedido.veiculoId))?.id || "",
     data: pedido.data || today(),
-    pagamento: pedido.pagamento || "pix",
+    condicaoPagamentoId: pedido.condicaoPagamentoId ? String(pedido.condicaoPagamentoId) : condicaoPadraoVenda(),
     vendedor: pedido.vendedor || "",
     previsao: pedido.previsao || "",
     obs: pedido.obs || "",
@@ -67,6 +76,13 @@ function clienteSelecionado() {
   return db.clientes.find((cliente) => cliente.id === vendaRascunho?.clienteId);
 }
 
+// Venda a prazo = condição com prazo médio maior que zero (vendas antigas sem condição: texto boleto/a prazo).
+function vendaAPrazo(pedido) {
+  const condicao = (db.condicoesPagamento || []).find((c) => sameId(c.id, pedido.condicaoPagamentoId));
+  if (condicao) return diasParcelas(condicao.QuantidadeParcelas, condicao.PrazoMedio).length > 0;
+  return ["boleto", "a prazo"].includes(String(pedido.pagamento || "").toLowerCase());
+}
+
 function limiteDisponivel(cliente) {
   // Crédito usado = títulos a receber em aberto da entidade no Financeiro. Vendas
   // antigas a boleto/a prazo, faturadas antes do Financeiro gerar o título, continuam contando.
@@ -75,7 +91,7 @@ function limiteDisponivel(cliente) {
     .reduce((soma, l) => soma + (Number(l.valor) || 0), 0);
   const pedidosComTitulo = new Set((db.lancamentos || []).filter((l) => l.pedidoId).map((l) => String(l.pedidoId).toLowerCase()));
   const usado = emAberto + db.pedidos
-    .filter((pedido) => pedido.clienteId === cliente.id && pedido.status === "faturado" && ["boleto", "a prazo"].includes(pedido.pagamento)
+    .filter((pedido) => pedido.clienteId === cliente.id && pedido.status === "faturado" && vendaAPrazo(pedido)
       && !pedidosComTitulo.has(String(pedido.id).toLowerCase()))
     .reduce((soma, pedido) => soma + totalPedido(pedido), 0);
   return Math.max(0, Number(cliente.limiteCredito || 0) - usado);
@@ -317,6 +333,26 @@ function valoresEtapaMarkup() {
   </section>`;
 }
 
+function condicaoDaVenda() {
+  return (db.condicoesPagamento || []).find((c) => sameId(c.id, vendaRascunho?.condicaoPagamentoId));
+}
+
+function opcoesCondicaoVenda() {
+  const lista = condicoesAtivas(vendaRascunho.condicaoPagamentoId);
+  if (!lista.length) return `<option value="">Cadastre uma forma de pagamento</option>`;
+  return (condicaoDaVenda() ? "" : `<option value="">Selecione...</option>`) + lista.map((c) =>
+    `<option value="${escapeHtml(c.id)}" ${sameId(c.id, vendaRascunho.condicaoPagamentoId) ? "selected" : ""}>${escapeHtml(c.Descricao)}${String(c.Status).toLowerCase() === "inativo" ? " (inativa)" : ""}</option>`).join("");
+}
+
+function dicaCondicaoVenda() {
+  const condicao = condicaoDaVenda();
+  if (!condicao) return condicoesAtivas().length ? "Selecione a forma de pagamento." : "Nenhuma forma de pagamento ativa. Cadastre na aba Formas de pagamento.";
+  const dias = diasParcelas(condicao.QuantidadeParcelas, condicao.PrazoMedio);
+  return dias.length
+    ? `${condicao.Tipo} · ${dias.length}x, vencimentos em ${dias.join("/")} dias. Ao faturar, gera ${dias.length > 1 ? "as parcelas" : "o título"} a receber no Financeiro.`
+    : `${condicao.Tipo} · à vista. Ao faturar, gera o lançamento no Financeiro (pendente vencendo hoje; em "Pago e faturado" já entra como recebido).`;
+}
+
 function pagamentoEtapaMarkup() {
   const subtotal = total(vendaRascunho.itens);
   const percentual = Number(vendaRascunho.descontoPercentual) || 0;
@@ -335,7 +371,8 @@ function pagamentoEtapaMarkup() {
       <div class="venda-total"><span>Total final</span><strong id="totalFinal">${money(Math.max(0, subtotal - desconto))}</strong></div>
     </div>
     <div class="grid venda-pagamento">
-      <label>Forma de pagamento<select id="pagamentoVenda">${["pix", "dinheiro", "cartão", "boleto", "a prazo"].map(v => `<option ${v === vendaRascunho.pagamento ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+      <label>Forma de pagamento<select id="pagamentoVenda">${opcoesCondicaoVenda()}</select>
+        <small class="hint" id="pagamentoVendaDica">${escapeHtml(dicaCondicaoVenda())}</small></label>
       ${editingPedidoId
       ? `<div class="pedido-status-bloqueado"><span class="meta">Status</span><strong>Orçamento · sem baixa de estoque</strong></div>`
       : `<label>Status da venda<select id="statusVenda"><option value="orçamento" ${vendaRascunho.status === "orçamento" ? "selected" : ""}>Pedido (não baixa estoque)</option><option value="faturado" ${vendaRascunho.status === "faturado" ? "selected" : ""}>Faturar agora (baixa estoque)</option><option value="pago" ${vendaRascunho.status === "pago" ? "selected" : ""}>Pago e faturado (baixa estoque)</option></select></label>`}
@@ -502,7 +539,11 @@ function renderVenda() {
     });
   }, 30);
   const pagamento = document.getElementById("pagamentoVenda");
-  if (pagamento) pagamento.onchange = () => { vendaRascunho.pagamento = pagamento.value; };
+  if (pagamento) pagamento.onchange = () => {
+    vendaRascunho.condicaoPagamentoId = pagamento.value;
+    const dica = document.getElementById("pagamentoVendaDica");
+    if (dica) dica.textContent = dicaCondicaoVenda();
+  };
   const status = document.getElementById("statusVenda");
   if (status) status.onchange = () => { vendaRascunho.status = status.value; };
   const box = document.getElementById("boxVenda");
@@ -561,6 +602,12 @@ async function concluirVenda(gerarPdf) {
     alert("Revise os preços unitários. Os valores devem ser numéricos e iguais ou maiores que zero.");
     return;
   }
+  if (!vendaRascunho.condicaoPagamentoId) {
+    etapaVenda = 5;
+    render();
+    alert("Selecione a forma de pagamento antes de concluir.");
+    return;
+  }
   const corpo = {
     ...vendaRascunho,
     status: editingPedidoId ? "orçamento" : vendaRascunho.status,
@@ -591,6 +638,9 @@ async function concluirVenda(gerarPdf) {
     alert(`O pedido ${pedido.numero} foi salvo, mas não foi possível atualizar a tela: ${error.message}`);
   }
   render();
+  const gerados = (db.lancamentos || []).filter((l) => sameId(l.pedidoId, pedido.id) && l.status !== "cancelado").length;
+  const numeroVenda = db.pedidos.find((p) => sameId(p.id, pedido.id))?.numero || pedido.numero || "";
+  if (gerados) toast(`Venda ${numeroVenda} faturada: ${gerados} lançamento(s) criado(s) no Financeiro.`);
   if (!gerarPdf) return;
   try { await baixarPdf(pedido.id); }
   catch (error) { alert(`O pedido ${pedido.numero} foi salvo, mas não foi possível baixar o PDF: ${error.message}`); }
@@ -600,6 +650,38 @@ async function baixarPdf(id) {
   await baixarArquivo(`/api/pedidos/${id}/pdf`, "pedido.pdf");
 }
 
+// Lançamentos do Financeiro gerados pela venda (aparecem no detalhe do pedido).
+function financeiroDoPedidoMarkup(pedido) {
+  if (!["faturado", "pago"].includes(String(pedido.status || "").toLowerCase())) return "";
+  const lancamentos = (db.lancamentos || []).filter((l) => sameId(l.pedidoId, pedido.id))
+    .sort((a, b) => String(a.vencimento || "").localeCompare(String(b.vencimento || "")));
+  return `<div class="venda-financeiro">
+    <div class="venda-financeiro-topo"><span class="meta">Financeiro</span><button class="btn ghost small" type="button" id="abrirFinanceiroPedido">Abrir no Financeiro</button></div>
+    ${lancamentos.length ? `<div class="table-wrap"><table><thead><tr><th>Lançamento</th><th>Vencimento</th><th>Valor</th><th>Situação</th></tr></thead><tbody>
+      ${lancamentos.map((l) => {
+        const situacao = typeof situacaoLancamento === "function" ? situacaoLancamento(l) : l.status;
+        return `<tr><td>${escapeHtml(l.descricao || l.codigo || "")}<small class="fin-sub">${escapeHtml(l.codigo || "")}</small></td><td>${br(l.vencimento)}</td><td>${money(l.valor)}</td>
+          <td><span class="badge ${tone(situacao)}">${escapeHtml(situacao)}</span>${situacao === "pago" && l.pagamento ? `<small class="fin-sub">em ${br(l.pagamento)}</small>` : ""}</td></tr>`;
+      }).join("")}
+    </tbody></table></div>` : `<p class="hint">Nenhum lançamento no Financeiro para esta venda${pedido.condicaoPagamentoId ? "" : " (venda antiga, sem forma de pagamento cadastrada)"}.</p>`}
+  </div>`;
+}
+
+// Explica o efeito do cancelamento antes de confirmar.
+function avisoCancelamentoMarkup(pedido) {
+  const faturado = ["faturado", "pago"].includes(String(pedido.status || "").toLowerCase());
+  const titulos = (db.lancamentos || []).filter((l) => sameId(l.pedidoId, pedido.id));
+  const pendentes = titulos.filter((l) => String(l.status || "").toLowerCase() === "pendente").length;
+  const pagos = titulos.filter((l) => String(l.status || "").toLowerCase() === "pago").length;
+  const linhas = [
+    "O pedido continua na lista com a situação “cancelado” (não é excluído).",
+    faturado ? "Os pneus voltam para o estoque." : "",
+    pendentes ? `${pendentes} lançamento(s) pendente(s) no Financeiro serão cancelados.` : "",
+    pagos ? `${pagos} lançamento(s) já recebido(s) continuam como pagos no Financeiro. Se houver devolução de dinheiro, lance a saída no Financeiro.` : ""
+  ].filter(Boolean);
+  return `<div class="venda-cancelar-aviso" role="alert"><strong>Cancelar o pedido ${escapeHtml(pedido.numero)}?</strong><ul>${linhas.map((l) => `<li>${escapeHtml(l)}</li>`).join("")}</ul></div>`;
+}
+
 function renderPedido() {
   const pedido = db.pedidos.find((p) => p.id === pedidoId);
   if (!pedido) { pedidoId = null; return render(); }
@@ -607,12 +689,12 @@ function renderPedido() {
   document.getElementById("lede").textContent = pedido.cliente;
   document.getElementById("actions").innerHTML = `<button class="btn ghost" id="backBtn" type="button">Voltar às vendas</button><button class="btn" id="baixarPedidoPdf" type="button">Baixar pedido em PDF</button>`;
   document.getElementById("view").innerHTML = `<section class="card">
-    <div class="venda-detalhe-topo"><div><span class="meta">Pedido de venda</span><h2>${escapeHtml(pedido.numero)}</h2></div>${badge(pedido.status)}</div>
+    <div class="venda-detalhe-topo"><div><span class="meta">Pedido de venda</span><h2>${escapeHtml(pedido.numero)}</h2></div>${(() => { const situacao = situacaoVenda(pedido); return `<span class="badge ${situacao.tom}">${escapeHtml(situacao.rotulo)}</span>`; })()}</div>
     <dl class="capa venda-detalhe">
       <div><dt>Cliente</dt><dd>${escapeHtml(pedido.cliente)}</dd></div>
       <div><dt>Veículo</dt><dd>${escapeHtml(db.veiculos.find((v) => sameId(v.id, pedido.veiculoId))?.modelo || "—")}</dd></div>
       <div><dt>Data</dt><dd>${br(pedido.data)}</dd></div>
-      <div><dt>Pagamento</dt><dd>${escapeHtml(pedido.pagamento)}</dd></div>
+      <div><dt>Pagamento</dt><dd>${escapeHtml(nomeCondicao(pedido) || "—")}</dd></div>
       <div><dt>Agendamento</dt><dd>${br(pedido.agendamento)} ${escapeHtml(pedido.horario)}</dd></div>
       <div><dt>Box</dt><dd>${escapeHtml(pedido.box || "—")}</dd></div>
     </dl>
@@ -623,17 +705,27 @@ function renderPedido() {
     <div class="venda-total"><span>Subtotal</span><strong>${money(total(pedido.itens))}</strong></div>
     <div class="venda-total"><span>Desconto (${Number(pedido.descontoPercentual || 0).toLocaleString("pt-BR")}%)</span><strong>− ${money(pedido.descontoValor)}</strong></div>
     <div class="venda-total"><span>Total final</span><strong>${money(totalPedido(pedido))}</strong></div>
+    ${financeiroDoPedidoMarkup(pedido)}
     <div class="venda-navegacao">
       ${pedido.status === "orçamento" ? `<button class="btn ghost" id="editarOrcamento" type="button">Editar orçamento</button>` : ""}
       ${pedido.status === "orçamento" ? `<button class="btn" id="faturarPedido" type="button">Faturar e baixar estoque</button>` : ""}
-      ${confirmDelete === `pedido:${pedido.id}`
-      ? `<button class="btn danger" id="confirmarExclusaoPedido" type="button">Confirmar exclusão</button><button class="btn ghost" id="cancelarExclusaoPedido" type="button">Cancelar</button>`
-      : `<button class="btn danger" id="pedirExclusaoPedido" type="button">Excluir pedido</button>`}
+      ${String(pedido.status || "").toLowerCase() === "cancelado" ? "" : confirmDelete === `cancelar:${pedido.id}`
+      ? `<button class="btn danger" id="confirmarCancelamentoPedido" type="button">Confirmar cancelamento</button><button class="btn ghost" id="voltarCancelamentoPedido" type="button">Voltar</button>`
+      : `<button class="btn danger" id="pedirCancelamentoPedido" type="button">Cancelar pedido</button>`}
     </div>
+    ${confirmDelete === `cancelar:${pedido.id}` ? avisoCancelamentoMarkup(pedido) : ""}
   </section>`;
   document.getElementById("backBtn").onclick = () => { pedidoId = null; render(); };
   document.getElementById("baixarPedidoPdf").onclick = async () => {
     try { await baixarPdf(pedido.id); } catch (error) { alert(`Não foi possível baixar o PDF: ${error.message}`); }
+  };
+  const abrirFinanceiro = document.getElementById("abrirFinanceiroPedido");
+  if (abrirFinanceiro) abrirFinanceiro.onclick = () => {
+    pedidoId = null;
+    query = pedido.numero;
+    finFiltro = { tipo: "todos", situacao: "todos", categoria: "" };
+    page = "financeiro";
+    render();
   };
   const editar = document.getElementById("editarOrcamento");
   if (editar) editar.onclick = () => editarOrcamento(pedido);
@@ -643,21 +735,28 @@ function renderPedido() {
       await api(`/api/pedidos/${pedido.id}`, { method: "PUT", body: JSON.stringify({ status: "faturado" }) });
       await load();
       render();
+      const gerados = (db.lancamentos || []).filter((l) => sameId(l.pedidoId, pedido.id) && l.status !== "cancelado").length;
+      if (gerados) toast(`Venda ${pedido.numero} faturada: ${gerados} lançamento(s) criado(s) no Financeiro.`);
     } catch (error) { alert(`Não foi possível faturar a venda: ${error.message}`); }
   };
-  const pedirExclusao = document.getElementById("pedirExclusaoPedido");
-  if (pedirExclusao) pedirExclusao.onclick = () => { confirmDelete = `pedido:${pedido.id}`; render(); };
-  const cancelarExclusao = document.getElementById("cancelarExclusaoPedido");
-  if (cancelarExclusao) cancelarExclusao.onclick = () => { confirmDelete = ""; render(); };
-  const confirmarExclusao = document.getElementById("confirmarExclusaoPedido");
-  if (confirmarExclusao) confirmarExclusao.onclick = async () => {
+  // Pedidos não são mais excluídos: o cancelamento mantém o histórico.
+  const pedirCancelamento = document.getElementById("pedirCancelamentoPedido");
+  if (pedirCancelamento) pedirCancelamento.onclick = () => { confirmDelete = `cancelar:${pedido.id}`; render(); };
+  const voltarCancelamento = document.getElementById("voltarCancelamentoPedido");
+  if (voltarCancelamento) voltarCancelamento.onclick = () => { confirmDelete = ""; render(); };
+  const confirmarCancelamento = document.getElementById("confirmarCancelamentoPedido");
+  if (confirmarCancelamento) confirmarCancelamento.onclick = async () => {
+    confirmarCancelamento.disabled = true;
     try {
-      await api(`/api/pedidos/${pedido.id}`, { method: "DELETE" });
-      pedidoId = null;
+      await api(`/api/pedidos/${pedido.id}`, { method: "PUT", body: JSON.stringify({ status: "cancelado" }) });
       confirmDelete = "";
       await load();
       render();
-    } catch (error) { alert(`Não foi possível excluir o pedido: ${error.message}`); }
+      toast(`Pedido ${pedido.numero} cancelado.`);
+    } catch (error) {
+      confirmarCancelamento.disabled = false;
+      alert(`Não foi possível cancelar o pedido: ${error.message}`);
+    }
   };
 }
 

@@ -67,7 +67,7 @@ async function createOrderPdf(pool, id) {
       .map(safe).filter(Boolean).join(' · ');
     if (address) { doc.text(address, left, y, { width: contentWidth }); y += 15; }
     if (order.veiculo) { doc.text(`Veículo: ${safe(order.veiculo)}`, left, y, { width: contentWidth }); y += 15; }
-    if (order.pagamento) { doc.text(`Pagamento: ${safe(order.pagamento)}${order.vendedor ? `   ·   Vendedor: ${safe(order.vendedor)}` : ''}`, left, y, { width: contentWidth }); y += 15; }
+    if (order.pagamento) { doc.text(`Pagamento: ${safe(order.pagamento)}${order.parcelasTexto ? ` (${safe(order.parcelasTexto)})` : ''}${order.vendedor ? `   ·   Vendedor: ${safe(order.vendedor)}` : ''}`, left, y, { width: contentWidth }); y += 15; }
     const appointment = [dateBr(order.agendamento), safe(order.horario), order.box && `Box ${safe(order.box)}`].filter(Boolean).join(' · ');
     if (appointment) { doc.text(`Agendamento: ${appointment}`, left, y, { width: contentWidth }); y += 15; }
     // Observações: só entram no PDF quando o pedido tiver alguma (mantém as quebras de linha).

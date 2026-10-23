@@ -94,7 +94,7 @@ async function readTable(pool, definition) {
     ...(definition.extras || []).map((name) => `t.[${name}]`),
     ...Object.entries(definition.computed || {}).map(([name, expression]) => `${expression} AS [${name}]`)
   ];
-  const selected = ['t.[id]', ...columns].join(', ');
+  const selected = [`t.[${definition.key || 'id'}] AS [id]`, ...columns].join(', ');
   const result = await pool.request().query(
     `SELECT ${selected} FROM dbo.[${definition.table}] t ${definition.joins || ''} ORDER BY ${definition.orderBy || 't.[criadoEm] DESC'}`
   );
@@ -216,12 +216,130 @@ async function validateProdutoCodigo(transaction, value, currentProductId = null
   return codigo;
 }
 
+// ===== Formas / condições de pagamento =====
+const CONDICAO_TIPOS = ['Dinheiro', 'PIX', 'Cartão de crédito', 'Cartão de débito', 'Boleto', 'Transferência', 'Cheque', 'Crediário', 'Outros'];
+
+function normalizeKey(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+}
+
+function parseCodigo(value, label = 'Código') {
+  const codigo = Number(String(value ?? '').trim());
+  if (!Number.isInteger(codigo) || codigo <= 0) throw badRequest(`${label} inválido.`);
+  return codigo;
+}
+
+// Dias de vencimento de cada parcela: parcelas iguais, a primeira após o
+// intervalo e as demais a cada intervalo, de modo que a média dê PrazoMedio.
+// Ex.: 3 parcelas e prazo médio 60 -> 30, 60 e 90 dias. 1 parcela -> PrazoMedio.
+function diasParcelas(quantidade, prazoMedio) {
+  const n = Math.max(1, Number(quantidade) || 1);
+  const prazo = Math.max(0, Number(prazoMedio) || 0);
+  if (prazo === 0) return [];
+  const intervalo = Math.max(1, Math.round((2 * prazo) / (n + 1)));
+  return Array.from({ length: n }, (_, indice) => intervalo * (indice + 1));
+}
+
+// Busca a condição; inativa só é aceita quando já era a condição atual do registro.
+async function loadCondicaoPagamento(transaction, value, currentCodigo = null) {
+  const codigo = parseCodigo(value, 'Forma de pagamento');
+  const result = await new sql.Request(transaction)
+    .input('codigo', sql.Int, codigo)
+    .query('SELECT Codigo, Descricao, Tipo, QuantidadeParcelas, PrazoMedio, Status FROM dbo.CondicoesPagamento WHERE Codigo = @codigo');
+  const condicao = result.recordset[0];
+  if (!condicao) throw conflict('A forma de pagamento selecionada não existe.');
+  if (String(condicao.Status || '').toLowerCase() === 'inativo' && Number(currentCodigo) !== codigo) {
+    throw conflict(`A forma de pagamento "${condicao.Descricao}" está inativa.`);
+  }
+  return condicao;
+}
+
+async function saveCondicaoPagamento(pool, body, existingCodigo = null) {
+  if (!isObject(body)) throw badRequest('O corpo da forma de pagamento deve ser um objeto JSON.');
+  const codigoAtual = existingCodigo == null ? null : parseCodigo(existingCodigo);
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin(sql.ISOLATION_LEVEL.READ_COMMITTED);
+  try {
+    let current = null;
+    if (codigoAtual) {
+      const result = await new sql.Request(transaction)
+        .input('codigo', sql.Int, codigoAtual)
+        .query('SELECT Descricao, Tipo, QuantidadeParcelas, PrazoMedio, Status FROM dbo.CondicoesPagamento WITH (UPDLOCK, HOLDLOCK) WHERE Codigo = @codigo');
+      current = result.recordset[0];
+      if (!current) throw notFound('Forma de pagamento não encontrada.');
+    }
+    const pick = (key) => (Object.prototype.hasOwnProperty.call(body, key) ? body[key] : current?.[key]);
+
+    const descricao = limitedText(pick('Descricao'), 100, 'A descrição');
+    if (!descricao) throw badRequest('Informe a descrição da forma de pagamento.');
+    const tipo = CONDICAO_TIPOS.find((item) => normalizeKey(item) === normalizeKey(pick('Tipo')));
+    if (!tipo) throw badRequest(`Tipo inválido. Use: ${CONDICAO_TIPOS.join(', ')}.`);
+    const parcelas = parseNumber(pick('QuantidadeParcelas') ?? 1, 'Quantidade de parcelas', { integer: true });
+    if (parcelas < 1 || parcelas > 120) throw badRequest('A quantidade de parcelas deve estar entre 1 e 120.');
+    const prazo = parseNumber(pick('PrazoMedio') ?? 0, 'Prazo médio', { integer: true });
+    if (prazo < 0 || prazo > 3650) throw badRequest('O prazo médio deve estar entre 0 e 3650 dias.');
+    const statusTexto = normalizeKey(pick('Status') || 'Ativo');
+    if (!['ativo', 'inativo'].includes(statusTexto)) throw badRequest('Status inválido.');
+    const status = statusTexto === 'ativo' ? 'Ativo' : 'Inativo';
+
+    const repetida = await new sql.Request(transaction)
+      .input('descricao', sql.NVarChar(100), descricao)
+      .input('codigo', sql.Int, codigoAtual)
+      .query(`SELECT TOP (1) Codigo FROM dbo.CondicoesPagamento WITH (UPDLOCK, HOLDLOCK)
+              WHERE LTRIM(RTRIM(Descricao)) = @descricao AND (@codigo IS NULL OR Codigo <> @codigo)`);
+    if (repetida.recordset[0]) throw conflict(`Já existe uma forma de pagamento com a descrição "${descricao}".`);
+
+    const request = new sql.Request(transaction)
+      .input('descricao', sql.NVarChar(100), descricao)
+      .input('tipo', sql.NVarChar(40), tipo)
+      .input('parcelas', sql.Int, parcelas)
+      .input('prazo', sql.Int, prazo)
+      .input('status', sql.NVarChar(30), status);
+    let codigo = codigoAtual;
+    if (codigoAtual) {
+      await request.input('codigo', sql.Int, codigoAtual).query(`UPDATE dbo.CondicoesPagamento
+        SET Descricao = @descricao, Tipo = @tipo, QuantidadeParcelas = @parcelas, PrazoMedio = @prazo, Status = @status
+        WHERE Codigo = @codigo`);
+    } else {
+      const inserted = await request.query(`INSERT INTO dbo.CondicoesPagamento (Descricao, Tipo, QuantidadeParcelas, PrazoMedio, Status)
+        OUTPUT inserted.Codigo VALUES (@descricao, @tipo, @parcelas, @prazo, @status)`);
+      codigo = inserted.recordset[0].Codigo;
+    }
+    await transaction.commit();
+    return { id: String(codigo) };
+  } catch (error) {
+    await transaction.rollback().catch(() => {});
+    throw error;
+  }
+}
+
+async function deleteCondicaoPagamento(pool, value) {
+  const codigo = parseCodigo(value);
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin(sql.ISOLATION_LEVEL.READ_COMMITTED);
+  try {
+    const uso = await new sql.Request(transaction)
+      .input('codigo', sql.Int, codigo)
+      .query(`SELECT (SELECT COUNT(1) FROM dbo.pedidos WHERE condicaoPagamentoId = @codigo) AS vendas,
+                     (SELECT COUNT(1) FROM dbo.financeiro_lancamentos WHERE condicaoPagamentoId = @codigo) AS lancamentos`);
+    const { vendas, lancamentos } = uso.recordset[0];
+    if (Number(vendas) || Number(lancamentos)) {
+      throw conflict(`Esta forma de pagamento já foi usada (${vendas} venda(s) e ${lancamentos} lançamento(s)) e não pode ser excluída. Altere o status para Inativo.`);
+    }
+    const result = await new sql.Request(transaction)
+      .input('codigo', sql.Int, codigo)
+      .query('DELETE FROM dbo.CondicoesPagamento WHERE Codigo = @codigo');
+    if (result.rowsAffected[0] === 0) throw notFound('Forma de pagamento não encontrada.');
+    await transaction.commit();
+  } catch (error) {
+    await transaction.rollback().catch(() => {});
+    throw error;
+  }
+}
+
 // ===== Financeiro unificado =====
 const LANCAMENTO_TIPOS = ['receber', 'pagar'];
 const LANCAMENTO_STATUS = ['pendente', 'pago', 'cancelado'];
-// Vendas faturadas com estas formas de pagamento geram um título a receber.
-const PAGAMENTOS_A_RECEBER = ['boleto', 'a prazo'];
-const DIAS_VENCIMENTO_VENDA = 30;
 
 function limitedText(value, max, label) {
   const text = value == null ? '' : String(value).trim();
@@ -246,7 +364,7 @@ async function saveLancamento(pool, body, existingId = null) {
     if (existingId) {
       const result = await new sql.Request(transaction)
         .input('id', sql.UniqueIdentifier, existingId)
-        .query(`SELECT tipo, categoriaId, entidadeId, pessoa, descricao, documento, valor,
+        .query(`SELECT tipo, categoriaId, entidadeId, pessoa, descricao, documento, valor, condicaoPagamentoId,
                        CONVERT(nvarchar(10), emissao, 23) AS emissao, CONVERT(nvarchar(10), vencimento, 23) AS vencimento,
                        CONVERT(nvarchar(10), pagamento, 23) AS pagamento, formaPagamento, status, obs
                 FROM dbo.financeiro_lancamentos WITH (UPDLOCK, HOLDLOCK) WHERE id = @id`);
@@ -283,7 +401,18 @@ async function saveLancamento(pool, body, existingId = null) {
     }
     const descricao = limitedText(pick('descricao'), 200, 'A descrição');
     const documento = limitedText(pick('documento'), 100, 'O número do documento/boleto');
-    const formaPagamento = limitedText(pick('formaPagamento'), 30, 'A forma de pagamento');
+    // Forma de pagamento vem do cadastro de condições; o texto antigo só é mantido
+    // em lançamentos migrados que ainda não foram vinculados a uma condição.
+    let condicaoPagamentoId = null;
+    let formaPagamento = '';
+    const condicaoInformada = pick('condicaoPagamentoId');
+    if (condicaoInformada != null && String(condicaoInformada).trim() !== '') {
+      const condicao = await loadCondicaoPagamento(transaction, condicaoInformada, current?.condicaoPagamentoId);
+      condicaoPagamentoId = condicao.Codigo;
+      formaPagamento = String(condicao.Descricao || '').slice(0, 100);
+    } else if (current && !current.condicaoPagamentoId) {
+      formaPagamento = String(current.formaPagamento || '').slice(0, 100);
+    }
     const obs = limitedText(pick('obs'), 500, 'A observação');
     if (!pessoa && !descricao) throw badRequest('Informe a entidade/favorecido ou uma descrição.');
 
@@ -315,7 +444,8 @@ async function saveLancamento(pool, body, existingId = null) {
       .input('emissao', sql.Date, emissao)
       .input('vencimento', sql.Date, vencimento)
       .input('pagamento', sql.Date, pagamento)
-      .input('formaPagamento', sql.NVarChar(30), formaPagamento || null)
+      .input('formaPagamento', sql.NVarChar(100), formaPagamento || null)
+      .input('condicaoPagamentoId', sql.Int, condicaoPagamentoId)
       .input('status', sql.NVarChar(20), status)
       .input('obs', sql.NVarChar(500), obs || null);
     let id = existingId;
@@ -324,13 +454,13 @@ async function saveLancamento(pool, body, existingId = null) {
         .query(`UPDATE dbo.financeiro_lancamentos
                 SET tipo=@tipo, categoriaId=@categoriaId, entidadeId=@entidadeId, pessoa=@pessoa, descricao=@descricao,
                     documento=@documento, valor=@valor, emissao=@emissao, vencimento=@vencimento, pagamento=@pagamento,
-                    formaPagamento=@formaPagamento, status=@status, obs=@obs
+                    formaPagamento=@formaPagamento, condicaoPagamentoId=@condicaoPagamentoId, status=@status, obs=@obs
                 WHERE id=@id`);
     } else {
       const inserted = await request.query(`INSERT INTO dbo.financeiro_lancamentos
-          (tipo, categoriaId, entidadeId, pessoa, descricao, documento, valor, emissao, vencimento, pagamento, formaPagamento, status, obs, origem)
+          (tipo, categoriaId, entidadeId, pessoa, descricao, documento, valor, emissao, vencimento, pagamento, formaPagamento, condicaoPagamentoId, status, obs, origem)
         OUTPUT inserted.id
-        VALUES (@tipo, @categoriaId, @entidadeId, @pessoa, @descricao, @documento, @valor, @emissao, @vencimento, @pagamento, @formaPagamento, @status, @obs, N'manual')`);
+        VALUES (@tipo, @categoriaId, @entidadeId, @pessoa, @descricao, @documento, @valor, @emissao, @vencimento, @pagamento, @formaPagamento, @condicaoPagamentoId, @status, @obs, N'manual')`);
       id = inserted.recordset[0].id;
     }
     await transaction.commit();
@@ -341,39 +471,60 @@ async function saveLancamento(pool, body, existingId = null) {
   }
 }
 
-// Venda faturada a boleto/a prazo: cria o título a receber (uma vez por venda).
+// Venda faturada: cria os lançamentos a receber no Financeiro (uma vez por venda).
+// A prazo (PrazoMedio > 0): um título por parcela. À vista: um lançamento vencendo hoje.
+// Venda "pago e faturado": um lançamento único já recebido.
 async function createSaleReceivable(transaction, orderId) {
   const result = await new sql.Request(transaction)
     .input('id', sql.UniqueIdentifier, orderId)
     .query(`SELECT p.numero, p.clienteId, p.cliente, p.pagamento, p.status, ISNULL(p.descontoValor, 0) AS desconto,
                    (SELECT ISNULL(SUM(i.qtd * i.unitario), 0) FROM dbo.pedido_itens i WHERE i.pedidoId = p.id) AS subtotal,
-                   (SELECT COUNT(1) FROM dbo.financeiro_lancamentos l WHERE l.pedidoId = p.id AND l.status <> N'cancelado') AS existentes
-            FROM dbo.pedidos p WHERE p.id = @id`);
+                   (SELECT COUNT(1) FROM dbo.financeiro_lancamentos l WHERE l.pedidoId = p.id AND l.status <> N'cancelado') AS existentes,
+                   cp.Codigo AS condicaoCodigo, cp.Descricao AS condicaoDescricao, cp.Tipo AS condicaoTipo,
+                   cp.QuantidadeParcelas, cp.PrazoMedio
+            FROM dbo.pedidos p
+            LEFT JOIN dbo.CondicoesPagamento cp ON cp.Codigo = p.condicaoPagamentoId
+            WHERE p.id = @id`);
   const order = result.recordset[0];
-  if (!order || Number(order.existentes) > 0) return;
-  const pagamento = String(order.pagamento || '').trim().toLowerCase();
-  if (!PAGAMENTOS_A_RECEBER.includes(pagamento)) return;
-  const valor = Math.round((Math.max(0, Number(order.subtotal) - Number(order.desconto)) + Number.EPSILON) * 100) / 100;
-  if (valor <= 0) return;
+  if (!order || Number(order.existentes) > 0 || !order.condicaoCodigo) return;
+  // À vista (prazo médio 0) gera um único lançamento vencendo no dia do faturamento.
+  const dias = diasParcelas(order.QuantidadeParcelas, order.PrazoMedio);
+  const valorTotal = Math.round((Math.max(0, Number(order.subtotal) - Number(order.desconto)) + Number.EPSILON) * 100) / 100;
+  if (valorTotal <= 0) return;
+
   const hoje = localToday();
   const pago = String(order.status || '').toLowerCase() === 'pago';
-  await new sql.Request(transaction)
-    .input('categoria', sql.NVarChar(80), pagamento === 'boleto' ? 'Boleto de cliente' : 'Venda')
-    .input('entidadeId', sql.UniqueIdentifier, order.clienteId || null)
-    .input('pessoa', sql.NVarChar(150), String(order.cliente || '').slice(0, 150) || null)
-    .input('descricao', sql.NVarChar(200), `Venda ${order.numero}`)
-    .input('valor', sql.Decimal(12, 2), valor)
-    .input('emissao', sql.Date, parseDate(hoje))
-    .input('vencimento', sql.Date, parseDate(pago ? hoje : addDays(hoje, DIAS_VENCIMENTO_VENDA)))
-    .input('pagamento', sql.Date, pago ? parseDate(hoje) : null)
-    .input('formaPagamento', sql.NVarChar(30), pagamento)
-    .input('status', sql.NVarChar(20), pago ? 'pago' : 'pendente')
-    .input('pedidoId', sql.UniqueIdentifier, orderId)
-    .query(`INSERT INTO dbo.financeiro_lancamentos
-              (tipo, categoriaId, entidadeId, pessoa, descricao, valor, emissao, vencimento, pagamento, formaPagamento, status, origem, pedidoId)
-            VALUES (N'receber', (SELECT id FROM dbo.financeiroCategoria WHERE nome = @categoria),
-                    (SELECT id FROM dbo.clientes WHERE id = @entidadeId), @pessoa, @descricao, @valor, @emissao,
-                    @vencimento, @pagamento, @formaPagamento, @status, N'venda', @pedidoId)`);
+  const centavos = Math.round(valorTotal * 100);
+  // Venda "pago e faturado" entra como recebida; "faturado" fica pendente
+  // (à vista vencendo hoje; a prazo uma parcela por vencimento).
+  const parcelas = pago || !dias.length
+    ? [{ dias: 0, centavos }]
+    : dias.map((dia, indice) => {
+      const base = Math.floor(centavos / dias.length);
+      return { dias: dia, centavos: indice === dias.length - 1 ? centavos - base * (dias.length - 1) : base };
+    });
+  for (const [indice, parcela] of parcelas.entries()) {
+    const descricao = parcelas.length > 1 ? `Venda ${order.numero} · parcela ${indice + 1}/${parcelas.length}` : `Venda ${order.numero}`;
+    await new sql.Request(transaction)
+      .input('categoria', sql.NVarChar(80), normalizeKey(order.condicaoTipo) === 'boleto' ? 'Boleto de cliente' : 'Venda')
+      .input('entidadeId', sql.UniqueIdentifier, order.clienteId || null)
+      .input('pessoa', sql.NVarChar(150), String(order.cliente || '').slice(0, 150) || null)
+      .input('descricao', sql.NVarChar(200), descricao)
+      .input('valor', sql.Decimal(12, 2), parcela.centavos / 100)
+      .input('emissao', sql.Date, parseDate(hoje))
+      .input('vencimento', sql.Date, parseDate(addDays(hoje, parcela.dias)))
+      .input('pagamento', sql.Date, pago ? parseDate(hoje) : null)
+      .input('formaPagamento', sql.NVarChar(100), String(order.condicaoDescricao || '').slice(0, 100))
+      .input('condicaoPagamentoId', sql.Int, order.condicaoCodigo)
+      .input('status', sql.NVarChar(20), pago ? 'pago' : 'pendente')
+      .input('pedidoId', sql.UniqueIdentifier, orderId)
+      .query(`INSERT INTO dbo.financeiro_lancamentos
+                (tipo, categoriaId, entidadeId, pessoa, descricao, valor, emissao, vencimento, pagamento, formaPagamento,
+                 condicaoPagamentoId, status, origem, pedidoId)
+              VALUES (N'receber', (SELECT id FROM dbo.financeiroCategoria WHERE nome = @categoria),
+                      (SELECT id FROM dbo.clientes WHERE id = @entidadeId), @pessoa, @descricao, @valor, @emissao,
+                      @vencimento, @pagamento, @formaPagamento, @condicaoPagamentoId, @status, N'venda', @pedidoId)`);
+  }
 }
 
 // Venda que deixa de estar faturada (ex.: cancelada): cancela os títulos pendentes gerados por ela.
@@ -399,6 +550,7 @@ async function createRow(pool, route, body) {
     throw conflict('Movimentos de carga e descarga devem ser salvos pelo fluxo próprio, com os produtos.');
   }
   if (route === 'lancamentos') return saveLancamento(pool, body);
+  if (route === 'condicoesPagamento') return saveCondicaoPagamento(pool, body);
 
   const fields = definition.columns.filter((column) => !column.readOnly && Object.prototype.hasOwnProperty.call(body, column.name));
   if (fields.length === 0) throw badRequest('Informe ao menos um campo para salvar.');
@@ -471,13 +623,14 @@ async function createOrUpdateSale(pool, body, existingOrderId = null) {
   const orderDate = parseDate(body.data || localToday(), 'Data');
   const forecast = parseDate(body.previsao, 'Previsão');
   const appointment = parseDate(body.agendamento, 'Agendamento');
-  const payment = getText(body, 'pagamento');
   const status = existingOrderId ? 'orçamento' : getText(body, 'status');
   const seller = getText(body, 'vendedor');
   const notes = getText(body, 'obs');
   const box = getText(body, 'box');
   const time = getText(body, 'horario');
-  if (!payment) throw conflict('Selecione a forma de pagamento.');
+  if (body.condicaoPagamentoId == null || String(body.condicaoPagamentoId).trim() === '') {
+    throw conflict('Selecione a forma de pagamento.');
+  }
   if (notes.length > 500) throw badRequest('A observação do pedido pode ter no máximo 500 caracteres.');
   if (!['orçamento', 'faturado', 'pago'].includes(status)) throw conflict('Status de venda inválido.');
 
@@ -488,16 +641,21 @@ async function createOrUpdateSale(pool, body, existingOrderId = null) {
   const transaction = new sql.Transaction(pool);
   await transaction.begin(sql.ISOLATION_LEVEL.READ_COMMITTED);
   try {
+    let currentCondicao = null;
     if (existingOrderId) {
       const existing = await new sql.Request(transaction)
         .input('id', sql.UniqueIdentifier, existingOrderId)
-        .query('SELECT status FROM dbo.pedidos WITH (UPDLOCK, HOLDLOCK) WHERE id = @id');
+        .query('SELECT status, condicaoPagamentoId FROM dbo.pedidos WITH (UPDLOCK, HOLDLOCK) WHERE id = @id');
       const currentStatus = existing.recordset[0]?.status;
       if (!currentStatus) throw notFound('O orçamento não foi encontrado.');
+      currentCondicao = existing.recordset[0].condicaoPagamentoId;
       if (String(currentStatus).toLowerCase() !== 'orçamento') {
         throw conflict('Somente orçamentos podem ser editados. Pedidos faturados não podem ser alterados.');
       }
     }
+
+    const condicao = await loadCondicaoPagamento(transaction, body.condicaoPagamentoId, currentCondicao);
+    const payment = String(condicao.Descricao || '').slice(0, 100);
 
     const clientResult = await new sql.Request(transaction)
       .input('id', sql.UniqueIdentifier, clientId)
@@ -564,7 +722,8 @@ async function createOrUpdateSale(pool, body, existingOrderId = null) {
         .input('id', sql.UniqueIdentifier, existingOrderId)
         .input('data', sql.Date, orderDate)
         .input('cliente', sql.NVarChar(150), clientName)
-        .input('pagamento', sql.NVarChar(30), payment)
+        .input('pagamento', sql.NVarChar(100), payment)
+        .input('condicaoPagamentoId', sql.Int, condicao.Codigo)
         .input('vendedor', sql.NVarChar(100), seller)
         .input('previsao', sql.Date, forecast)
         .input('obs', sql.NVarChar(500), notes)
@@ -576,7 +735,8 @@ async function createOrUpdateSale(pool, body, existingOrderId = null) {
         .input('agendamento', sql.Date, appointment)
         .input('horario', sql.NVarChar(10), time)
         .query(`UPDATE dbo.pedidos
-                SET data=@data, cliente=@cliente, pagamento=@pagamento, vendedor=@vendedor, previsao=@previsao,
+                SET data=@data, cliente=@cliente, pagamento=@pagamento, condicaoPagamentoId=@condicaoPagamentoId,
+                    vendedor=@vendedor, previsao=@previsao,
                     obs=@obs, clienteId=@clienteId, veiculoId=@veiculoId, descontoPercentual=@percentual,
                     descontoValor=@desconto, box=@box, agendamento=@agendamento, horario=@horario
                 OUTPUT inserted.id, inserted.numero
@@ -592,7 +752,8 @@ async function createOrUpdateSale(pool, body, existingOrderId = null) {
       const inserted = await new sql.Request(transaction)
         .input('data', sql.Date, orderDate)
         .input('cliente', sql.NVarChar(150), clientName)
-        .input('pagamento', sql.NVarChar(30), payment)
+        .input('pagamento', sql.NVarChar(100), payment)
+        .input('condicaoPagamentoId', sql.Int, condicao.Codigo)
         .input('status', sql.NVarChar(30), status)
         .input('vendedor', sql.NVarChar(100), seller)
         .input('previsao', sql.Date, forecast)
@@ -605,10 +766,10 @@ async function createOrUpdateSale(pool, body, existingOrderId = null) {
         .input('agendamento', sql.Date, appointment)
         .input('horario', sql.NVarChar(10), time)
         .query(`INSERT INTO dbo.pedidos
-                  (numero, data, cliente, pagamento, status, vendedor, previsao, obs, clienteId, veiculoId,
+                  (numero, data, cliente, pagamento, condicaoPagamentoId, status, vendedor, previsao, obs, clienteId, veiculoId,
                    descontoPercentual, descontoValor, box, agendamento, horario)
                 OUTPUT inserted.id, inserted.numero
-                VALUES ('PED-' + FORMAT(NEXT VALUE FOR dbo.seq_pedido, '0000'), @data, @cliente, @pagamento,
+                VALUES ('PED-' + FORMAT(NEXT VALUE FOR dbo.seq_pedido, '0000'), @data, @cliente, @pagamento, @condicaoPagamentoId,
                         @status, @vendedor, @previsao, @obs, @clienteId, @veiculoId,
                         @percentual, @desconto, @box, @agendamento, @horario)`);
       orderId = inserted.recordset[0].id;
@@ -652,6 +813,10 @@ async function updateRow(pool, route, id, body) {
   if (!definition) throw notFound('Rota não encontrada.');
   ensureWritableRoute(definition);
   if (!isObject(body)) throw badRequest('O corpo da requisição deve ser um objeto JSON.');
+  if (route === 'condicoesPagamento') {
+    await saveCondicaoPagamento(pool, body, id);
+    return;
+  }
   const validId = parseGuid(id, 'Identificador');
   if (route === 'lancamentos') {
     await saveLancamento(pool, body, validId);
@@ -689,6 +854,16 @@ async function updateRow(pool, route, id, body) {
       if (Object.prototype.hasOwnProperty.call(body, 'status') && !['orçamento', 'faturado', 'pago', 'cancelado'].includes(String(body.status).toLowerCase())) {
         throw conflict('Status de pedido inválido.');
       }
+      // A forma de pagamento sempre vem do cadastro CondicoesPagamento; o texto é só cópia da descrição.
+      delete body.pagamento;
+      if (Object.prototype.hasOwnProperty.call(body, 'condicaoPagamentoId')) {
+        const atual = await new sql.Request(transaction)
+          .input('id', sql.UniqueIdentifier, validId)
+          .query('SELECT condicaoPagamentoId FROM dbo.pedidos WHERE id = @id');
+        const condicao = await loadCondicaoPagamento(transaction, body.condicaoPagamentoId, atual.recordset[0]?.condicaoPagamentoId);
+        body.condicaoPagamentoId = condicao.Codigo;
+        body.pagamento = String(condicao.Descricao || '').slice(0, 100);
+      }
     }
 
     const fields = definition.columns.filter((column) => !column.readOnly && Object.prototype.hasOwnProperty.call(body, column.name));
@@ -723,24 +898,14 @@ async function deleteRow(pool, route, id) {
   const definition = tables[route];
   if (!definition) throw notFound('Rota não encontrada.');
   ensureWritableRoute(definition);
+  if (route === 'condicoesPagamento') return deleteCondicaoPagamento(pool, id);
+  if (route === 'pedidos') {
+    throw conflict('Pedidos não são excluídos. Use "Cancelar pedido" para manter o histórico.');
+  }
   const validId = parseGuid(id, 'Identificador');
   const transaction = new sql.Transaction(pool);
   await transaction.begin(sql.ISOLATION_LEVEL.READ_COMMITTED);
   try {
-    if (route === 'pedidos') {
-      const existing = await new sql.Request(transaction)
-        .input('id', sql.UniqueIdentifier, validId)
-        .query('SELECT status FROM dbo.pedidos WITH (UPDLOCK, HOLDLOCK) WHERE id = @id');
-      const status = existing.recordset[0]?.status;
-      if (status == null) throw notFound('Pedido não encontrado.');
-      if (isSaleCompleted(status)) await adjustOrderStock(transaction, validId, false);
-      // Títulos ainda não pagos gerados pela venda saem junto; os já pagos ficam
-      // no financeiro (o vínculo com o pedido é desfeito pelo banco).
-      await new sql.Request(transaction)
-        .input('id', sql.UniqueIdentifier, validId)
-        .query(`DELETE FROM dbo.financeiro_lancamentos
-                WHERE pedidoId = @id AND origem = N'venda' AND status <> N'pago'`);
-    }
     if (route === 'cargas') {
       const existing = await new sql.Request(transaction)
         .input('id', sql.UniqueIdentifier, validId)
@@ -779,7 +944,8 @@ async function getOrderForPdf(pool, id) {
                    COALESCE(c.documento, N'') AS documento, COALESCE(c.telefone, N'') AS telefone,
                    CONCAT(COALESCE(v.marca + N' ', N''), COALESCE(v.modelo, N''),
                           CASE WHEN v.placa IS NULL THEN N'' ELSE N' · ' + v.placa END) AS veiculo,
-                   CONVERT(nvarchar(10), p.data, 23) AS data, p.pagamento, p.status, p.vendedor,
+                   CONVERT(nvarchar(10), p.data, 23) AS data, COALESCE(cp.Descricao, p.pagamento) AS pagamento,
+                   cp.QuantidadeParcelas, cp.PrazoMedio, p.status, p.vendedor,
                    CONVERT(nvarchar(10), p.agendamento, 23) AS agendamento, p.box, p.horario, p.obs,
                    p.descontoPercentual, p.descontoValor,
                    COALESCE(c.cep, N'') AS cep, COALESCE(c.endereco, N'') AS endereco,
@@ -788,8 +954,14 @@ async function getOrderForPdf(pool, id) {
             FROM dbo.pedidos p
             LEFT JOIN dbo.clientes c ON c.id = p.clienteId
             LEFT JOIN dbo.veiculos v ON v.id = p.veiculoId
+            LEFT JOIN dbo.CondicoesPagamento cp ON cp.Codigo = p.condicaoPagamentoId
             WHERE p.id = @id`);
   const order = orderResult.recordset[0];
+  if (order) {
+    // Ex.: "3x · vencimentos em 30/60/90 dias" (vazio quando à vista).
+    const dias = diasParcelas(order.QuantidadeParcelas, order.PrazoMedio);
+    order.parcelasTexto = dias.length ? `${dias.length}x · vencimento${dias.length > 1 ? 's' : ''} em ${dias.join('/')} dias` : '';
+  }
   if (!order) throw notFound('Pedido não encontrado.');
   const itemsResult = await pool.request()
     .input('id', sql.UniqueIdentifier, validId)
@@ -1135,5 +1307,6 @@ module.exports = {
   getOrderForPdf,
   getCarcacaOrdemForPdf,
   parseGuid,
+  diasParcelas,
   normalizeSaleUnitPrice
 };

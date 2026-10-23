@@ -175,7 +175,7 @@ CREATE TABLE dbo.pedidos (
     numero     nvarchar(20)  NOT NULL,
     data       date          NULL,
     cliente    nvarchar(150) NULL,
-    pagamento  nvarchar(30)  NULL,
+    pagamento  nvarchar(100) NULL, -- cópia da Descricao da condição de pagamento (histórico/PDF)
     status     nvarchar(30)  NULL,
     vendedor   nvarchar(100) NULL,
     previsao   date          NULL,
@@ -338,6 +338,26 @@ CREATE TABLE dbo.carga_itens (
 );
 GO
 
+-- ===== Formas / condições de pagamento =====
+-- Cadastro usado na venda (pedidos.condicaoPagamentoId) e no Financeiro
+-- (financeiro_lancamentos.condicaoPagamentoId).
+-- Tipo = meio de pagamento (Dinheiro, PIX, Cartão de crédito, Boleto...).
+-- PrazoMedio = 0 é à vista; maior que zero é a prazo e, ao faturar a venda,
+-- gera QuantidadeParcelas títulos a receber (ex.: 3 parcelas, prazo médio 60 = 30/60/90 dias).
+IF OBJECT_ID('dbo.CondicoesPagamento', 'U') IS NULL
+CREATE TABLE dbo.CondicoesPagamento (
+    Codigo             int IDENTITY(1,1) NOT NULL CONSTRAINT PK_CondicoesPagamento PRIMARY KEY,
+    CriadoEm           datetime2         NOT NULL CONSTRAINT DF_CondicoesPagamento_CriadoEm DEFAULT SYSDATETIME(),
+    Descricao          nvarchar(100)     NOT NULL CONSTRAINT UQ_CondicoesPagamento_Descricao UNIQUE,
+    Tipo               nvarchar(40)      NOT NULL,
+    QuantidadeParcelas int               NOT NULL CONSTRAINT DF_CondicoesPagamento_QuantidadeParcelas DEFAULT 1,
+    PrazoMedio         int               NOT NULL CONSTRAINT DF_CondicoesPagamento_PrazoMedio DEFAULT 0,
+    Status             nvarchar(30)      NOT NULL CONSTRAINT DF_CondicoesPagamento_Status DEFAULT N'Ativo',
+    CONSTRAINT CK_CondicoesPagamento_QuantidadeParcelas CHECK (QuantidadeParcelas BETWEEN 1 AND 120),
+    CONSTRAINT CK_CondicoesPagamento_PrazoMedio CHECK (PrazoMedio BETWEEN 0 AND 3650)
+);
+GO
+
 -- ===== Financeiro unificado =====
 -- Categorias dos lançamentos financeiros. tipo = 'receber', 'pagar' ou NULL (serve aos dois).
 IF OBJECT_ID('dbo.financeiroCategoria', 'U') IS NULL
@@ -393,7 +413,8 @@ CREATE TABLE dbo.financeiro_lancamentos (
     emissao        date             NULL,
     vencimento     date             NULL,
     pagamento      date             NULL,
-    formaPagamento nvarchar(30)     NULL,
+    formaPagamento nvarchar(100)    NULL, -- cópia da Descricao da condição (ou texto antigo)
+    condicaoPagamentoId int         NULL CONSTRAINT FK_financeiro_lancamentos_condicao REFERENCES dbo.CondicoesPagamento (Codigo),
     status         nvarchar(20)     NOT NULL CONSTRAINT DF_financeiro_lancamentos_status DEFAULT N'pendente',
     origem         nvarchar(20)     NOT NULL CONSTRAINT DF_financeiro_lancamentos_origem DEFAULT N'manual',
     pedidoId       uniqueidentifier NULL CONSTRAINT FK_financeiro_lancamentos_pedido REFERENCES dbo.pedidos (id) ON DELETE SET NULL,
