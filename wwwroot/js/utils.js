@@ -21,7 +21,7 @@ const totalPecasPedido = (pedido) => (pedido?.itens || []).reduce((soma, item) =
 }, 0);
 const overdue = (date, status) => date && !["pago", "paga", "cancelado", "cancelada"].includes(status) && date < today();
 
-let db = { clientes: [], veiculos: [], servicos: [], produtos: [], carcacas: [], carcacaOrdens: [], estoque: [], producao: [], cargas: [], pedidos: [], financeiro: [], contas: [], boletos: [] };
+let db = { clientes: [], veiculos: [], servicos: [], produtos: [], carcacas: [], carcacaOrdens: [], estoque: [], producao: [], cargas: [], pedidos: [], lancamentos: [], financeiroCategoria: [] };
 let page = "painel";
 let pedidoId = null;
 let editingPedidoId = null;
@@ -30,6 +30,8 @@ let etapaVenda = 1;
 let editing = null;
 let query = "";
 let confirmDelete = "";
+// Filtros da aba Financeiro (tipo: todos|receber|pagar; situacao: todos|abertos|vencidos|pagos|cancelados).
+let finFiltro = { tipo: "todos", situacao: "todos", categoria: "" };
 
 // ===== MÁSCARA DE PREÇO (digitação da direita para a esquerda) =====
 function formatarPrecoDigitos(digitos) {
@@ -180,7 +182,7 @@ async function api(url, options = {}) {
 
 async function load() {
   db = await api("/api/dados");
-  for (const key of ["clientes", "veiculos", "servicos", "produtos", "carcacas", "carcacaOrdens", "estoque", "producao", "cargas", "pedidos", "financeiro", "contas", "boletos"])
+  for (const key of ["clientes", "veiculos", "servicos", "produtos", "carcacas", "carcacaOrdens", "estoque", "producao", "cargas", "pedidos", "lancamentos", "financeiroCategoria"])
     if (!Array.isArray(db[key])) db[key] = [];
   db.pedidos = db.pedidos.map((p) => ({ ...p, itens: p.itens || [] }));
   db.carcacaOrdens = db.carcacaOrdens.map((o) => ({ ...o, itens: o.itens || [] }));
@@ -212,8 +214,7 @@ function escapeHtml(value) {
 
 const NAV = [
   ["painel", "Painel"], ["clientes", "Entidades"], ["veiculos", "Veículos"], ["produtos", "Produtos"], ["servicos", "Serviços"], ["carcacas", "Carcaças"], ["estoque", "Estoque"], ["producao", "Produção"],
-  ["vendas", "Vendas"], ["cargas", "Carga e descarga"], ["financeiro", "Entradas e saídas"],
-  ["contas", "Pagar e receber"], ["boletos", "Boletos"]
+  ["vendas", "Vendas"], ["cargas", "Carga e descarga"], ["financeiro", "Financeiro"]
 ];
 const TITLES = {
   painel: ["Painel", "Todos os indicadores."],
@@ -226,15 +227,13 @@ const TITLES = {
   producao: ["Produção", "Apontamento por turno, medida e operador."],
   cargas: ["Carga e descarga", "Entrada e saída de pátio."],
   vendas: ["Vendas", "Monte pedidos com entidades cadastradas e produtos do catálogo."],
-  financeiro: ["Entradas e saídas", "Caixa do dia a dia."],
-  contas: ["Pagar e receber", "Títulos em aberto, pagos e vencidos."],
-  boletos: ["Boletos", "Da empresa (a pagar) e de entidades (a receber)."]
+  financeiro: ["Financeiro", "Contas a receber e a pagar, boletos de clientes e da empresa, despesas e caixa."]
 };
 
 function tone(status) {
   const s = (status || "").toLowerCase();
   if (["aprovada", "concluída", "pago", "faturado", "conferida", "saiu", "pronta"].includes(s)) return "ok";
-  if (["em produção", "em andamento", "aberto", "orçamento", "aguardando"].includes(s)) return "warn";
+  if (["em produção", "em andamento", "aberto", "pendente", "orçamento", "aguardando"].includes(s)) return "warn";
   if (["reprovada", "vencido", "cancelado", "divergente", "refugo"].includes(s)) return "bad";
   return "";
 }

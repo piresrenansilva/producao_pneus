@@ -130,22 +130,27 @@ const FORMS = {
       </aside>
     </div>`
   ].join(""),
-  financeiro: () => [
-    field("data", "Data", "date", "required"), field("tipo", "Tipo", "select"),
-    field("categoria", "Categoria", "select"), field("descricao", "Descrição", "text", "required"),
-    field("valor", "Valor", "text", "required class='preco-mask'")
-  ].join(""),
-  contas: () => [
-    field("tipo", "Tipo", "select"), field("pessoa", "Pessoa", "text", "required"),
-    field("descricao", "Descrição", "text", "required"), field("valor", "Valor", "text", "required class='preco-mask'"),
-    field("vencimento", "Vencimento", "date", "required"), field("boleto", "Nº do boleto", "text"),
-    field("status", "Status", "select")
-  ].join(""),
-  boletos: () => [
-    field("origem", "Origem", "select"), field("pessoa", "Pessoa", "text", "required"),
-    field("numero", "Número", "text", "required"), field("valor", "Valor", "text", "required class='preco-mask'"),
-    field("vencimento", "Vencimento", "date", "required"), field("ref", "Referência", "text"),
-    field("status", "Status", "select")
+  lancamentos: () => [
+    field("tipo", "Tipo", "select", "required"),
+    field("categoriaId", "Categoria", "select", "required"),
+    `<label class="full fin-entidade-campo">Entidade / favorecido
+      <div class="fin-entidade-busca">
+      <input name="pessoa" id="finPessoa" type="search" maxlength="150" placeholder="Digite ao menos 3 letras para buscar (ou escreva o favorecido, ex.: COPEL)" autocomplete="off" spellcheck="false" data-lpignore="true" role="combobox" aria-autocomplete="list" aria-controls="finEntidadeSugestoes" aria-expanded="false">
+      <div class="carga-pedido-sugestoes" id="finEntidadeSugestoes" role="listbox" hidden></div>
+      </div>
+      <small class="hint" id="finEntidadeInfo"></small>
+    </label>
+    <input type="hidden" name="entidadeId" id="finEntidadeId">`,
+    field("descricao", "Descrição", "text", "maxlength='200' placeholder='Ex.: Parcela 1/3, vale, conta de luz de outubro'"),
+    field("documento", "Nº do boleto / documento", "text", "maxlength='100'"),
+    field("valor", "Valor", "text", "required class='preco-mask'"),
+    field("emissao", "Emissão", "date"),
+    field("vencimento", "Vencimento", "date", "required"),
+    field("status", "Situação", "select", "required"),
+    field("pagamento", "Data do pagamento", "date"),
+    field("formaPagamento", "Forma de pagamento", "select"),
+    `<p class="full hint fin-origem-info" id="finOrigemInfo" hidden></p>`,
+    field("obs", "Observações", "textarea", "maxlength='500'")
   ].join(""),
   capa: () => [
     field("cliente", "Entidade", "text", "required list='clientesPedido' autocomplete='off'"), field("data", "Data", "date", "required"),
@@ -168,9 +173,11 @@ const SELECTS = {
   estoque: { tipo: ["novo", "recapado", "insumo", "carcaça"] },
   producao: { turno: ["Manhã", "Tarde", "Noite"], status: ["em andamento", "concluída", "refugo"] },
   cargas: { tipo: ["carga", "descarga"], status: ["aguardando", "conferida", "saiu", "divergente"] },
-  financeiro: { tipo: ["entrada", "saída"], categoria: ["venda", "recapagem", "insumo", "folha", "frete", "energia", "imposto", "outros"] },
-  contas: { tipo: ["pagar", "receber"], status: ["aberto", "pago", "vencido"] },
-  boletos: { origem: [["cliente", "Entidade (a receber)"], ["empresa", "Empresa (a pagar)"]], status: ["aberto", "pago", "vencido", "cancelado"] },
+  lancamentos: {
+    tipo: [["receber", "A receber (entrada)"], ["pagar", "A pagar (saída)"]],
+    status: [["pendente", "Pendente"], ["pago", "Pago / recebido"], ["cancelado", "Cancelado"]],
+    formaPagamento: [["", "Não informada"], "boleto", "pix", "dinheiro", "cartão", "transferência", "débito automático"]
+  },
   capa: { pagamento: ["boleto", "pix", "dinheiro", "cartão", "a prazo"], status: ["orçamento", "faturado", "pago", "cancelado"] }
 };
 
@@ -434,7 +441,7 @@ function openForm(kind, row) {
   }, 50);
 
   editing = { kind, id: row?.id || null };
-  const titles = { clientes: row ? "Editar entidade" : "Cadastrar entidade", produtos: row ? "Editar produto" : "Cadastrar produto", carcacas: "Carcaça", carcacaOrdens: row ? `Apontamento ${row.numero || "de carcaças"}` : "Novo apontamento de carcaças", estoque: "Estoque", producao: "Produção", cargas: "Movimento", financeiro: "Lançamento", contas: "Título", boletos: "Boleto" };
+  const titles = { clientes: row ? "Editar entidade" : "Cadastrar entidade", produtos: row ? "Editar produto" : "Cadastrar produto", carcacas: "Carcaça", carcacaOrdens: row ? `Apontamento ${row.numero || "de carcaças"}` : "Novo apontamento de carcaças", estoque: "Estoque", producao: "Produção", cargas: "Movimento", lancamentos: row ? `Lançamento ${row.codigo || ""}`.trim() : "Novo lançamento financeiro" };
   document.getElementById("modalTitle").textContent = titles[kind] || "Registro";
   document.getElementById("formFields").innerHTML = FORMS[kind]();
   const form = document.getElementById("form");
@@ -480,6 +487,7 @@ function openForm(kind, row) {
       if (form.elements.medida) form.elements.medida.value = row.medida || produto?.medida || "";
     }
   } else if (getField(form, "data")) getField(form, "data").value = today();
+  if (kind === "lancamentos") configurarFormLancamento(form, row);
   if (kind === "produtos") {
     const categoriaSel = form.querySelector('select[name="categoriaId"]');
     if (categoriaSel) categoriaSel.value = row?.categoriaId ? String(row.categoriaId) : "";
@@ -939,6 +947,138 @@ function openForm(kind, row) {
     };
   }
   document.getElementById("modal").classList.add("show");
+}
+
+// ===== Formulário do lançamento financeiro =====
+function ehFuncionario(entidade) {
+  return String(entidade?.tipo || "").trim().toLocaleLowerCase("pt-BR") === "funcionário";
+}
+
+function configurarFormLancamento(form, row) {
+  const tipoSel = form.querySelector('select[name="tipo"]');
+  const categoriaSel = form.querySelector('select[name="categoriaId"]');
+  const statusSel = form.querySelector('select[name="status"]');
+  const formaSel = form.querySelector('select[name="formaPagamento"]');
+  const pagamentoEl = getField(form, "pagamento");
+  const pessoaEl = document.getElementById("finPessoa");
+  const entidadeEl = document.getElementById("finEntidadeId");
+  const sugestoes = document.getElementById("finEntidadeSugestoes");
+  const info = document.getElementById("finEntidadeInfo");
+  const origemInfo = document.getElementById("finOrigemInfo");
+
+  if (!row) {
+    tipoSel.value = finFiltro.tipo === "pagar" ? "pagar" : "receber";
+    statusSel.value = "pendente";
+    getField(form, "emissao").value = today();
+    getField(form, "vencimento").value = today();
+  } else if (formaSel) {
+    // Forma de pagamento antiga que não está na lista continua aparecendo.
+    const forma = String(row.formaPagamento || "");
+    if (forma && ![...formaSel.options].some((o) => o.value === forma)) formaSel.add(new Option(forma, forma));
+    formaSel.value = forma;
+  }
+
+  // Categorias vêm da tabela financeiroCategoria, filtradas pelo tipo escolhido.
+  const preencherCategorias = () => {
+    const atual = categoriaSel.value || String(row?.categoriaId || "");
+    const lista = (db.financeiroCategoria || []).filter((categoria) =>
+      (!categoria.tipo || categoria.tipo === tipoSel.value)
+      && (String(categoria.status || "").toLowerCase() !== "inativo" || sameId(categoria.id, row?.categoriaId)));
+    categoriaSel.innerHTML = `<option value="">Selecione...</option>` + lista
+      .map((categoria) => `<option value="${escapeAttr(categoria.id)}">${escapeHtml(categoria.nome)}</option>`).join("");
+    if (lista.some((categoria) => String(categoria.id) === String(atual))) categoriaSel.value = String(atual);
+  };
+  tipoSel.addEventListener("change", preencherCategorias);
+  preencherCategorias();
+
+  // Data do pagamento só vale quando a situação é "pago".
+  const atualizarPagamento = (mudouSituacao) => {
+    const pago = statusSel.value === "pago";
+    pagamentoEl.disabled = !pago;
+    pagamentoEl.closest("label")?.classList.toggle("campo-inativo", !pago);
+    if (pago && mudouSituacao && !pagamentoEl.value) pagamentoEl.value = today();
+  };
+  statusSel.addEventListener("change", () => atualizarPagamento(true));
+  atualizarPagamento(false);
+
+  if (origemInfo && row?.origem === "venda") {
+    origemInfo.hidden = false;
+    origemInfo.textContent = `Gerado automaticamente pela venda ${row.pedidoNumero || ""} (faturada a ${row.formaPagamento || "prazo"}).`;
+  } else if (origemInfo && row?.origem === "migrado") {
+    origemInfo.hidden = false;
+    origemInfo.textContent = "Importado das abas antigas (Entradas e saídas, Pagar e receber ou Boletos).";
+  }
+
+  // Busca da entidade: a partir de 3 letras mostra até 8 cadastros.
+  const entidadeAtual = () => db.clientes.find((cliente) => sameId(cliente.id, entidadeEl.value));
+  const mostrarInfo = () => {
+    const entidade = entidadeAtual();
+    info.textContent = entidade
+      ? `Vinculado ao cadastro: ${entidade.nome}${entidade.tipo ? ` (${entidade.tipo})` : ""}${entidade.documento ? ` · ${entidade.documento}` : ""}`
+      : pessoaEl.value.trim()
+        ? "Sem cadastro vinculado: o nome digitado será salvo como favorecido."
+        : "";
+  };
+  const ocultar = () => {
+    sugestoes.hidden = true;
+    sugestoes.innerHTML = "";
+    pessoaEl.setAttribute("aria-expanded", "false");
+  };
+  const escolher = (entidade) => {
+    entidadeEl.value = entidade.id;
+    pessoaEl.value = entidade.nome || "";
+    ocultar();
+    mostrarInfo();
+    pessoaEl.focus();
+  };
+  const buscar = () => {
+    const termo = normalizarBuscaEntidade(pessoaEl.value.trim());
+    if (termo.length < 3) { ocultar(); return; }
+    const nomeCategoria = categoriaSel.selectedOptions[0]?.textContent || "";
+    const priorizarFuncionarios = /funcion|sal[aá]rio|folha/i.test(nomeCategoria);
+    const encontrados = db.clientes
+      .filter((cliente) => String(cliente.status || "").toLowerCase() !== "inativo")
+      .filter((cliente) => normalizarBuscaEntidade([cliente.nome, cliente.codigo, cliente.documento, cliente.telefone].join(" ")).includes(termo))
+      .sort((a, b) => (priorizarFuncionarios ? Number(ehFuncionario(b)) - Number(ehFuncionario(a)) : 0)
+        || String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR"))
+      .slice(0, 8);
+    sugestoes.innerHTML = encontrados.length
+      ? encontrados.map((cliente) => `<button type="button" class="carga-pedido-sugestao" role="option" aria-selected="false" data-fin-entidade="${escapeAttr(cliente.id)}">
+          <strong>${escapeHtml(cliente.nome)}</strong>
+          <span>${escapeHtml([cliente.tipo, cliente.documento || cliente.codigo, cliente.cidade].filter(Boolean).join(" · "))}</span>
+        </button>`).join("")
+      : `<div class="carga-pedido-sem-sugestoes">Nenhuma entidade encontrada. O nome digitado será salvo como favorecido.</div>`;
+    sugestoes.hidden = false;
+    pessoaEl.setAttribute("aria-expanded", "true");
+    sugestoes.querySelectorAll("[data-fin-entidade]").forEach((botao) => {
+      botao.onclick = () => {
+        const entidade = db.clientes.find((cliente) => sameId(cliente.id, botao.dataset.finEntidade));
+        if (entidade) escolher(entidade);
+      };
+    });
+  };
+  pessoaEl.addEventListener("input", () => {
+    const entidade = entidadeAtual();
+    if (entidade && pessoaEl.value.trim() !== String(entidade.nome || "").trim()) entidadeEl.value = "";
+    buscar();
+    mostrarInfo();
+  });
+  pessoaEl.addEventListener("keydown", (event) => {
+    const primeira = sugestoes.querySelector("[data-fin-entidade]");
+    if (event.key === "ArrowDown" && primeira) {
+      event.preventDefault();
+      primeira.focus();
+    } else if (event.key === "Enter" && !sugestoes.hidden) {
+      event.preventDefault();
+      primeira?.click();
+    } else if (event.key === "Escape") {
+      ocultar();
+    }
+  });
+  pessoaEl.addEventListener("blur", () => setTimeout(() => {
+    if (!sugestoes.contains(document.activeElement)) ocultar();
+  }, 150));
+  mostrarInfo();
 }
 
 async function removeRow(kind, id) {

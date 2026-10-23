@@ -69,17 +69,22 @@ const tables = {
     table: 'pedido_itens',
     columns: [G('pedidoId'), S('produtoId', 50), S('descricao', 200), S('medida', 50), I('qtd'), M('unitario'), S('tipo', 20), G('produtoRef'), G('servicoRef')]
   },
-  financeiro: {
-    table: 'financeiro',
-    columns: [T('data'), S('tipo', 20), S('categoria', 30), S('descricao', 200), M('valor')]
+  // Financeiro unificado (substitui as antigas rotas financeiro, contas e boletos,
+  // cujas tabelas continuam no banco apenas como cópia dos dados migrados).
+  financeiroCategoria: {
+    table: 'financeiroCategoria',
+    // Somente leitura pela API (alimenta a lista de categorias do lançamento).
+    readOnlyRoute: true,
+    orderBy: 't.[id]',
+    columns: [S('nome', 80), S('tipo', 10), S('status', 30)]
   },
-  contas: {
-    table: 'contas',
-    columns: [S('tipo', 20), S('pessoa', 150), S('descricao', 200), M('valor'), T('vencimento'), S('boleto', 100), S('status', 30)]
-  },
-  boletos: {
-    table: 'boletos',
-    columns: [S('origem', 20), S('pessoa', 150), S('numero', 100), M('valor'), T('vencimento'), S('ref', 150), S('status', 30)]
+  lancamentos: {
+    table: 'financeiro_lancamentos',
+    // Criação/edição passam por saveLancamento (validação de tipo, categoria, entidade e status).
+    joins: 'LEFT JOIN dbo.[financeiroCategoria] fc ON fc.[id] = t.[categoriaId] LEFT JOIN dbo.[pedidos] pe ON pe.[id] = t.[pedidoId]',
+    computed: { categoria: 'fc.[nome]', pedidoNumero: 'pe.[numero]' },
+    extras: ['codigo'],
+    columns: [S('tipo', 10), I('categoriaId'), G('entidadeId'), S('pessoa', 150), S('descricao', 200), S('documento', 100), M('valor'), T('emissao'), T('vencimento'), T('pagamento'), S('formaPagamento', 30), S('status', 20), S('obs', 500), RO('origem', 's', 20), RO('pedidoId', 'g')]
   },
   carcacaOrdens: {
     table: 'carcaca_ordens',

@@ -242,6 +242,9 @@ IF NOT EXISTS (
         FOREIGN KEY (pedidoId) REFERENCES dbo.pedidos(id) ON DELETE SET NULL;
 GO
 
+-- financeiro, contas e boletos são as tabelas antigas (legado). Desde a aba
+-- Financeiro unificada, os dados vivem em dbo.financeiro_lancamentos; estas
+-- tabelas ficam só como cópia de segurança dos registros migrados.
 IF OBJECT_ID('dbo.financeiro', 'U') IS NULL
 CREATE TABLE dbo.financeiro (
     id         uniqueidentifier NOT NULL CONSTRAINT DF_financeiro_id DEFAULT NEWID() CONSTRAINT PK_financeiro PRIMARY KEY,
@@ -333,4 +336,74 @@ CREATE TABLE dbo.carga_itens (
     medida     nvarchar(60)     NULL,
     qtd        int              NOT NULL CONSTRAINT DF_carga_itens_qtd DEFAULT 0
 );
+GO
+
+-- ===== Financeiro unificado =====
+-- Categorias dos lançamentos financeiros. tipo = 'receber', 'pagar' ou NULL (serve aos dois).
+IF OBJECT_ID('dbo.financeiroCategoria', 'U') IS NULL
+CREATE TABLE dbo.financeiroCategoria (
+    id       int IDENTITY(1,1) NOT NULL CONSTRAINT PK_financeiroCategoria PRIMARY KEY,
+    criadoEm datetime2         NOT NULL CONSTRAINT DF_financeiroCategoria_criadoEm DEFAULT SYSDATETIME(),
+    nome     nvarchar(80)      NOT NULL CONSTRAINT UQ_financeiroCategoria_nome UNIQUE,
+    tipo     nvarchar(10)      NULL,
+    status   nvarchar(30)      NOT NULL CONSTRAINT DF_financeiroCategoria_status DEFAULT N'Ativo'
+);
+GO
+
+INSERT INTO dbo.financeiroCategoria (nome, tipo)
+SELECT v.nome, v.tipo
+FROM (VALUES
+    (N'Boleto de cliente', N'receber'),
+    (N'Venda', N'receber'),
+    (N'Recapagem / serviço', N'receber'),
+    (N'Boleto da empresa', N'pagar'),
+    (N'Despesa com funcionário', N'pagar'),
+    (N'Salários / folha', N'pagar'),
+    (N'Fornecedor', N'pagar'),
+    (N'Insumos / matéria-prima', N'pagar'),
+    (N'Frete', N'pagar'),
+    (N'Energia / água / internet', N'pagar'),
+    (N'Impostos', N'pagar'),
+    (N'Aluguel', N'pagar'),
+    (N'Outros', NULL)
+) v (nome, tipo)
+WHERE NOT EXISTS (SELECT 1 FROM dbo.financeiroCategoria c WHERE c.nome = v.nome);
+GO
+
+IF OBJECT_ID('dbo.seq_financeiro', 'SO') IS NULL
+    CREATE SEQUENCE dbo.seq_financeiro START WITH 1 INCREMENT BY 1;
+GO
+
+-- Lançamentos financeiros: contas a receber e a pagar, boletos (de clientes e
+-- da empresa), despesas com funcionários e o caixa (lançamentos já pagos).
+-- status: pendente | pago | cancelado ("vencido" = pendente com vencimento passado).
+-- origem: manual | venda (gerado ao faturar venda a boleto/a prazo) | migrado.
+IF OBJECT_ID('dbo.financeiro_lancamentos', 'U') IS NULL
+CREATE TABLE dbo.financeiro_lancamentos (
+    id             uniqueidentifier NOT NULL CONSTRAINT DF_financeiro_lancamentos_id DEFAULT NEWID() CONSTRAINT PK_financeiro_lancamentos PRIMARY KEY,
+    criadoEm       datetime2        NOT NULL CONSTRAINT DF_financeiro_lancamentos_criadoEm DEFAULT SYSDATETIME(),
+    codigo         nvarchar(20)     NOT NULL CONSTRAINT DF_financeiro_lancamentos_codigo DEFAULT (N'FIN-' + FORMAT(NEXT VALUE FOR dbo.seq_financeiro, '00000')),
+    tipo           nvarchar(10)     NOT NULL,
+    categoriaId    int              NULL CONSTRAINT FK_financeiro_lancamentos_categoria REFERENCES dbo.financeiroCategoria (id),
+    entidadeId     uniqueidentifier NULL CONSTRAINT FK_financeiro_lancamentos_entidade REFERENCES dbo.clientes (id) ON DELETE SET NULL,
+    pessoa         nvarchar(150)    NULL,
+    descricao      nvarchar(200)    NULL,
+    documento      nvarchar(100)    NULL,
+    valor          decimal(12,2)    NOT NULL CONSTRAINT DF_financeiro_lancamentos_valor DEFAULT 0,
+    emissao        date             NULL,
+    vencimento     date             NULL,
+    pagamento      date             NULL,
+    formaPagamento nvarchar(30)     NULL,
+    status         nvarchar(20)     NOT NULL CONSTRAINT DF_financeiro_lancamentos_status DEFAULT N'pendente',
+    origem         nvarchar(20)     NOT NULL CONSTRAINT DF_financeiro_lancamentos_origem DEFAULT N'manual',
+    pedidoId       uniqueidentifier NULL CONSTRAINT FK_financeiro_lancamentos_pedido REFERENCES dbo.pedidos (id) ON DELETE SET NULL,
+    obs            nvarchar(500)    NULL
+);
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.financeiro_lancamentos') AND name = 'IX_financeiro_lancamentos_status_vencimento')
+    CREATE INDEX IX_financeiro_lancamentos_status_vencimento ON dbo.financeiro_lancamentos (status, vencimento);
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.financeiro_lancamentos') AND name = 'IX_financeiro_lancamentos_pedidoId')
+    CREATE INDEX IX_financeiro_lancamentos_pedidoId ON dbo.financeiro_lancamentos (pedidoId) WHERE pedidoId IS NOT NULL;
 GO

@@ -70,7 +70,17 @@ async function createOrderPdf(pool, id) {
     if (order.pagamento) { doc.text(`Pagamento: ${safe(order.pagamento)}${order.vendedor ? `   ·   Vendedor: ${safe(order.vendedor)}` : ''}`, left, y, { width: contentWidth }); y += 15; }
     const appointment = [dateBr(order.agendamento), safe(order.horario), order.box && `Box ${safe(order.box)}`].filter(Boolean).join(' · ');
     if (appointment) { doc.text(`Agendamento: ${appointment}`, left, y, { width: contentWidth }); y += 15; }
-    if (order.obs) { doc.text(`Observações: ${safe(order.obs)}`, left, y, { width: contentWidth}); y += 20; }
+    // Observações: só entram no PDF quando o pedido tiver alguma (mantém as quebras de linha).
+    const observacoes = String(order.obs == null ? '' : order.obs).replace(/\r\n?/g, '\n').replace(/\t/g, ' ').trim();
+    if (observacoes) {
+      y += 6;
+      doc.font('Helvetica-Bold').fontSize(9).fillColor(darkGreen).text('OBSERVAÇÕES', left, y);
+      y += 14;
+      doc.font('Helvetica').fontSize(9).fillColor('#202923');
+      const obsHeight = doc.heightOfString(observacoes, { width: contentWidth });
+      doc.text(observacoes, left, y, { width: contentWidth });
+      y += obsHeight + 8;
+    }
 
     y += 10;
     const col = { qty: left, description: left + 52, unit: right - 170, total: right - 78 };
@@ -108,26 +118,46 @@ async function createOrderPdf(pool, id) {
       y += descriptionHeight;
     }
 
+    // Totais + selo de garantia precisam de ~120pt; se não couber, vão para a próxima página.
+    if (y + 125 > doc.page.height - 55) {
+      doc.addPage();
+      y = 50;
+    }
     y += 16;
     const summaryX = right - 230;
     doc.font('Helvetica').fontSize(9).fillColor(soft).text('Subtotal', summaryX, y, { width: 115 });
     doc.font('Helvetica').fillColor('#202923').text(money(subtotal), summaryX + 115, y, { width: 115, align: 'right' });
     y += 17;
     doc.font('Helvetica').fontSize(9).fillColor(soft).text(`Desconto (${Number(order.descontoPercentual || 0).toLocaleString('pt-BR')}%)`, summaryX, y, { width: 115 });
-    doc.font('Helvetica').fillColor('#202923').text(`− ${money(discount)}`, summaryX + 115, y, { width: 115, align: 'right' });
+    doc.font('Helvetica').fillColor('#202923').text(`- ${money(discount)}`, summaryX + 115, y, { width: 115, align: 'right' });
     y += 20;
     doc.rect(summaryX, y, 230, 34).fill('#F2F8F4');
     doc.rect(summaryX, y, 92, 34).fill('#111111');
     doc.font('Helvetica-Bold').fontSize(11).fillColor('#FFFFFF').text('TOTAL R$', summaryX + 8, y + 11, { width: 76, align: 'center' });
     doc.font('Helvetica-Bold').fontSize(12).fillColor('#111111').text(money(total), summaryX + 102, y + 10, { width: 120, align: 'right' });
 
+    // Selo de garantia: círculo verde com "6", na mesma linha do total, e o texto embaixo.
+    const WARRANTY_MONTHS = 6;
+    const sealRadius = 24;
+    const sealCenterX = left + 50;
+    const sealCenterY = y + 17; // centro vertical da caixa do total (altura 34)
+    doc.circle(sealCenterX, sealCenterY, sealRadius).fill(green);
+    doc.circle(sealCenterX, sealCenterY, sealRadius - 4).lineWidth(1.2).strokeColor('#FFFFFF').stroke();
+    doc.font('Helvetica-Bold').fontSize(24).fillColor('#FFFFFF')
+      .text(String(WARRANTY_MONTHS), sealCenterX - sealRadius, sealCenterY - 12, { width: sealRadius * 2, align: 'center', lineBreak: false });
+    doc.font('Helvetica-Bold').fontSize(8.5).fillColor(darkGreen)
+      .text('MESES DE GARANTIA', sealCenterX - 55, sealCenterY + sealRadius + 6, { width: 110, align: 'center', lineBreak: false });
+
     const pageRange = doc.bufferedPageRange();
     for (let pageIndex = 0; pageIndex < pageRange.count; pageIndex += 1) {
       doc.switchToPage(pageRange.start + pageIndex);
       const footerY = doc.page.height - 42;
       doc.rect(0, footerY, pageWidth, 42).fill('#111111');
+      const bottomMargin = doc.page.margins.bottom;
+      doc.page.margins.bottom = 0; // evita que o rodapé abra uma página extra
       doc.font('Helvetica-Bold').fontSize(8).fillColor('#FFFFFF')
-        .text('MS PNEUS · REVENDEDOR DE PNEUS · Francisco Beltrão - PR', left, footerY + 16, { width: contentWidth, align: 'center' });
+        .text('MS PNEUS · REVENDEDOR DE PNEUS · Francisco Beltrão - PR', left, footerY + 16, { width: contentWidth, align: 'center', lineBreak: false });
+      doc.page.margins.bottom = bottomMargin;
     }
     doc.end();
   });

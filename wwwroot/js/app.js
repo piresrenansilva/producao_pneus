@@ -15,12 +15,12 @@ function render() {
   const [title, lede] = TITLES[page];
   document.getElementById("title").textContent = title;
   document.getElementById("lede").textContent = lede;
-  const creates = { clientes: "Cadastrar entidade", veiculos: "Cadastrar veículo", servicos: "Cadastrar serviço", produtos: "Cadastrar produto", carcacas: "Novo apontamento", estoque: "Novo item", producao: "Novo apontamento", cargas: "Novo movimento", vendas: "Novo pedido", financeiro: "Novo lançamento", contas: "Novo título", boletos: "Novo boleto" };
+  const creates = { clientes: "Cadastrar entidade", veiculos: "Cadastrar veículo", servicos: "Cadastrar serviço", produtos: "Cadastrar produto", carcacas: "Novo apontamento", estoque: "Novo item", producao: "Novo apontamento", cargas: "Novo movimento", vendas: "Novo pedido", financeiro: "Novo lançamento" };
   actions.innerHTML = creates[page] ? `<button class="btn" id="addBtn">${creates[page]}</button>` : "";
   addLogoutButton();
   view.innerHTML = views[page]();
   const add = document.getElementById("addBtn");
-  if (add) add.onclick = () => page === "vendas" ? iniciarPedido() : openForm(page === "carcacas" ? "carcacaOrdens" : page);
+  if (add) add.onclick = () => page === "vendas" ? iniciarPedido() : openForm(({ carcacas: "carcacaOrdens", financeiro: "lancamentos" })[page] || page);
   const q = document.getElementById("q");
   if (q) q.oninput = () => { query = q.value; const pos = q.selectionStart; render(); const next = document.getElementById("q"); if (next) { next.focus(); next.selectionStart = next.selectionEnd = pos; } };
   view.querySelectorAll("[data-edit]").forEach((b) => b.onclick = () => {
@@ -35,6 +35,7 @@ function render() {
     catch (error) { toast(`Não foi possível gerar o PDF: ${error.message}`, "bad"); }
     finally { b.disabled = false; b.textContent = textoOriginal; }
   });
+  if (page === "financeiro") ligarFinanceiro(view);
   view.querySelectorAll("[data-del]").forEach((b) => b.onclick = () => {
     const [kind, id] = b.dataset.del.split(":");
     removeRow(kind, id);
@@ -55,18 +56,19 @@ const views = {
     const baixos = db.estoque.filter((r) => Number(r.qtd) < Number(r.minimo));
     const mes = today().slice(0, 7);
     const prod = db.producao.filter((r) => String(r.data).startsWith(mes)).reduce((a, r) => a + Number(r.qtd || 0), 0);
-    const ent = db.financeiro.filter((r) => r.tipo === "entrada").reduce((a, r) => a + Number(r.valor || 0), 0);
-    const sai = db.financeiro.filter((r) => r.tipo === "saída").reduce((a, r) => a + Number(r.valor || 0), 0);
+    const pagos = db.lancamentos.filter((l) => situacaoLancamento(l) === "pago");
+    const ent = pagos.filter((l) => l.tipo === "receber").reduce((a, l) => a + Number(l.valor || 0), 0);
+    const sai = pagos.filter((l) => l.tipo === "pagar").reduce((a, l) => a + Number(l.valor || 0), 0);
     const alertas = [
       ...baixos.map((r) => `Estoque baixo: ${r.item} (${r.qtd} de ${r.minimo})`),
-      ...db.contas.filter((r) => overdue(r.vencimento, r.status)).map((r) => `Título vencido: ${r.pessoa} · ${money(r.valor)}`),
-      ...db.boletos.filter((r) => overdue(r.vencimento, r.status)).map((r) => `Boleto vencido: ${r.pessoa} · ${money(r.valor)}`)
+      ...db.lancamentos.filter((l) => situacaoLancamento(l) === "vencido").map((l) =>
+        `${l.tipo === "pagar" ? "A pagar" : "A receber"} vencido: ${l.pessoa || l.descricao || l.codigo} · ${money(l.valor)} · venceu em ${br(l.vencimento)}`)
     ];
     return `<div class="kpis">
       <div class="card"><span>Carcaças</span><strong>${carc}</strong><em>unidades</em></div>
       <div class="card"><span>Estoque</span><strong>${est}</strong><em>${baixos.length} abaixo do mínimo</em></div>
       <div class="card"><span>Produção no mês</span><strong>${prod}</strong><em>pneus</em></div>
-      <div class="card"><span>Saldo</span><strong>${money(ent - sai)}</strong><em>entradas menos saídas</em></div>
+      <div class="card"><span>Saldo</span><strong>${money(ent - sai)}</strong><em>recebido menos pago (Financeiro)</em></div>
     </div>
     <div>
       <section class="card"><h2>Alertas</h2>${alertas.length ? `<ul class="list">${alertas.map((a) => `<li>${escapeHtml(a)}</li>`).join("")}</ul>` : `<p class="hint">Nenhum alerta.</p>`}</section>
@@ -189,15 +191,137 @@ const views = {
         </dl>
       </button>`).join("") || `<p class="hint">Nenhum pedido.</p>`}`;
   },
-  financeiro() { return table("financeiro", ["Data", "Tipo", "Categoria", "Descrição", "Valor"], (r) => [br(r.data), badge(r.tipo), escapeHtml(r.categoria), escapeHtml(r.descricao), money(r.valor)]); },
-  contas() { return table("contas", ["Tipo", "Pessoa", "Descrição", "Valor", "Vencimento", "Status"], (r) => [escapeHtml(r.tipo), escapeHtml(r.pessoa), escapeHtml(r.descricao), money(r.valor), br(r.vencimento), badge(r.status, r.vencimento)]); },
-  boletos() { return table("boletos", ["Origem", "Pessoa", "Número", "Valor", "Vencimento", "Status"], (r) => [r.origem === "empresa" ? "Empresa" : "Cliente", escapeHtml(r.pessoa), escapeHtml(r.numero), money(r.valor), br(r.vencimento), badge(r.status, r.vencimento)]); },
+  financeiro() {
+    const lancamentos = db.lancamentos || [];
+    const soma = (lista) => lista.reduce((total, l) => total + (Number(l.valor) || 0), 0);
+    const abertos = lancamentos.filter((l) => ["pendente", "vencido"].includes(situacaoLancamento(l)));
+    const aReceber = abertos.filter((l) => l.tipo === "receber");
+    const aPagar = abertos.filter((l) => l.tipo === "pagar");
+    const vencidos = abertos.filter((l) => situacaoLancamento(l) === "vencido");
+    const mes = today().slice(0, 7);
+    const pagosMes = lancamentos.filter((l) => situacaoLancamento(l) === "pago" && String(l.pagamento || "").startsWith(mes));
+    const recebidoMes = soma(pagosMes.filter((l) => l.tipo === "receber"));
+    const pagoMes = soma(pagosMes.filter((l) => l.tipo === "pagar"));
+
+    const busca = normalizarBuscaEntidade(query.trim());
+    const lista = lancamentos
+      .filter((l) => finFiltro.tipo === "todos" || l.tipo === finFiltro.tipo)
+      .filter((l) => {
+        const situacao = situacaoLancamento(l);
+        return finFiltro.situacao === "todos"
+          || (finFiltro.situacao === "abertos" && (situacao === "pendente" || situacao === "vencido"))
+          || (finFiltro.situacao === "vencidos" && situacao === "vencido")
+          || (finFiltro.situacao === "pagos" && situacao === "pago")
+          || (finFiltro.situacao === "cancelados" && situacao === "cancelado");
+      })
+      .filter((l) => !finFiltro.categoria || String(l.categoriaId) === finFiltro.categoria)
+      .filter((l) => !busca || normalizarBuscaEntidade([l.codigo, l.pessoa, l.descricao, l.documento, l.categoria, l.pedidoNumero, l.obs].join(" ")).includes(busca))
+      .sort(ordenarLancamentos);
+    const listaReceber = soma(lista.filter((l) => l.tipo === "receber" && situacaoLancamento(l) !== "cancelado"));
+    const listaPagar = soma(lista.filter((l) => l.tipo === "pagar" && situacaoLancamento(l) !== "cancelado"));
+
+    const chip = (grupo, valor, rotulo) => {
+      const ativo = finFiltro[grupo] === valor;
+      return `<button type="button" class="fin-chip${ativo ? " ativo" : ""}" aria-pressed="${ativo}" data-fin-${grupo}="${valor}">${rotulo}</button>`;
+    };
+    const categorias = (db.financeiroCategoria || []).filter((c) => finFiltro.tipo === "todos" || !c.tipo || c.tipo === finFiltro.tipo);
+
+    return `<div class="fin-kpis">
+      <button type="button" class="fin-kpi receber" data-fin-atalho="receber"><span>A receber (em aberto)</span><strong>${money(soma(aReceber))}</strong><em>${aReceber.length} lançamento(s)</em></button>
+      <button type="button" class="fin-kpi pagar" data-fin-atalho="pagar"><span>A pagar (em aberto)</span><strong>${money(soma(aPagar))}</strong><em>${aPagar.length} lançamento(s)</em></button>
+      <button type="button" class="fin-kpi vencido" data-fin-atalho="vencidos"><span>Vencidos</span><strong>${money(soma(vencidos))}</strong><em>${vencidos.length} lançamento(s)</em></button>
+      <div class="fin-kpi saldo"><span>Saldo do mês</span><strong>${money(recebidoMes - pagoMes)}</strong><em>recebido ${money(recebidoMes)} · pago ${money(pagoMes)}</em></div>
+    </div>
+    <section class="fin-painel">
+      <div class="fin-filtros">
+        <div class="fin-chips" role="group" aria-label="Tipo">${chip("tipo", "todos", "Todos")}${chip("tipo", "receber", "A receber")}${chip("tipo", "pagar", "A pagar")}</div>
+        <div class="fin-chips" role="group" aria-label="Situação">${chip("situacao", "todos", "Todas")}${chip("situacao", "abertos", "Em aberto")}${chip("situacao", "vencidos", "Vencidos")}${chip("situacao", "pagos", "Pagos")}${chip("situacao", "cancelados", "Cancelados")}</div>
+        <label>Categoria<select id="finCategoria"><option value="">Todas as categorias</option>${categorias.map((c) =>
+          `<option value="${escapeAttr(c.id)}" ${String(c.id) === finFiltro.categoria ? "selected" : ""}>${escapeHtml(c.nome)}</option>`).join("")}</select></label>
+        <label class="fin-busca">Pesquisar<input id="q" type="search" placeholder="Entidade, descrição, nº do boleto, venda..." value="${escapeAttr(query)}"></label>
+      </div>
+      <div class="table-wrap"><table class="fin-tabela"><thead><tr>
+        <th>Vencimento</th><th>Tipo</th><th>Categoria</th><th>Entidade / favorecido</th><th>Descrição</th><th class="num">Valor</th><th>Situação</th><th></th>
+      </tr></thead><tbody>
+      ${lista.map((l) => {
+        const situacao = situacaoLancamento(l);
+        const aberto = situacao === "pendente" || situacao === "vencido";
+        const detalhes = [l.documento ? `Doc. ${l.documento}` : "", l.pedidoNumero ? `Venda ${l.pedidoNumero}` : "", l.codigo].filter(Boolean).join(" · ");
+        const entidade = db.clientes.find((c) => sameId(c.id, l.entidadeId));
+        return `<tr class="fin-linha ${situacao}">
+          <td>${br(l.vencimento)}</td>
+          <td><span class="fin-tipo ${l.tipo === "pagar" ? "pagar" : "receber"}">${l.tipo === "pagar" ? "A pagar" : "A receber"}</span></td>
+          <td>${escapeHtml(l.categoria || "—")}</td>
+          <td><strong>${escapeHtml(l.pessoa || "—")}</strong>${entidade?.tipo ? `<small class="fin-sub">${escapeHtml(entidade.tipo)}</small>` : ""}</td>
+          <td>${escapeHtml(l.descricao || "—")}${detalhes ? `<small class="fin-sub">${escapeHtml(detalhes)}</small>` : ""}</td>
+          <td class="num fin-valor ${l.tipo === "pagar" ? "pagar" : "receber"}">${l.tipo === "pagar" ? "- " : ""}${money(l.valor)}</td>
+          <td><span class="badge ${tone(situacao)}">${situacao}</span>${situacao === "pago" && l.pagamento ? `<small class="fin-sub">em ${br(l.pagamento)}</small>` : ""}</td>
+          <td class="fin-acoes">${aberto ? `<button class="btn small" type="button" data-fin-pagar="${escapeAttr(l.id)}">${l.tipo === "pagar" ? "Marcar pago" : "Marcar recebido"}</button>` : ""}
+            <button class="btn ghost small" type="button" data-edit="lancamentos:${escapeAttr(l.id)}">Editar</button>
+            <button class="btn danger small" type="button" data-del="lancamentos:${escapeAttr(l.id)}">Excluir</button></td>
+        </tr>`;
+      }).join("") || `<tr><td colspan="8">${lancamentos.length ? "Nenhum lançamento com esses filtros." : "Nenhum lançamento. Use “Novo lançamento” para registrar boletos, contas e despesas."}</td></tr>`}
+      </tbody></table></div>
+      <div class="fin-rodape"><span>${lista.length} lançamento(s)</span><span>A receber: <strong>${money(listaReceber)}</strong></span><span>A pagar: <strong>${money(listaPagar)}</strong></span><span>Diferença: <strong>${money(listaReceber - listaPagar)}</strong></span></div>
+    </section>`;
+  },
   clientes() { return table("clientes", ["Código", "Nome / Razão social", "Tipo", "CPF / CNPJ", "Telefone", "E-mail", "Cidade / UF", "Status"], (r) => [
     escapeHtml(r.codigo || r.id), escapeHtml(r.nome), escapeHtml(r.tipo), escapeHtml(r.documento), escapeHtml(r.telefone), escapeHtml(r.email),
     escapeHtml([r.cidade, r.estado].filter(Boolean).join(" / ")), badge(r.status)
   ]); }
 };
 
+
+// ===== Financeiro: situação, ordenação e ações da lista =====
+// pendente com vencimento já passado aparece como "vencido".
+function situacaoLancamento(lancamento) {
+  const status = String(lancamento?.status || "").toLowerCase();
+  if (status === "pago" || status === "cancelado") return status;
+  return lancamento?.vencimento && lancamento.vencimento < today() ? "vencido" : "pendente";
+}
+
+// Vencidos primeiro, depois pendentes (vencimento mais próximo), pagos (mais recentes) e cancelados.
+function ordenarLancamentos(a, b) {
+  const peso = { vencido: 0, pendente: 1, pago: 2, cancelado: 3 };
+  const sa = situacaoLancamento(a);
+  const sb = situacaoLancamento(b);
+  if (peso[sa] !== peso[sb]) return peso[sa] - peso[sb];
+  if (peso[sa] <= 1) return String(a.vencimento || "9999").localeCompare(String(b.vencimento || "9999"));
+  return String(b.pagamento || b.vencimento || "").localeCompare(String(a.pagamento || a.vencimento || ""));
+}
+
+function ligarFinanceiro(view) {
+  view.querySelectorAll("[data-fin-tipo]").forEach((b) => b.onclick = () => {
+    finFiltro.tipo = b.dataset.finTipo;
+    const categoria = (db.financeiroCategoria || []).find((c) => String(c.id) === finFiltro.categoria);
+    if (categoria?.tipo && finFiltro.tipo !== "todos" && categoria.tipo !== finFiltro.tipo) finFiltro.categoria = "";
+    render();
+  });
+  view.querySelectorAll("[data-fin-situacao]").forEach((b) => b.onclick = () => { finFiltro.situacao = b.dataset.finSituacao; render(); });
+  view.querySelectorAll("[data-fin-atalho]").forEach((b) => b.onclick = () => {
+    const atalho = b.dataset.finAtalho;
+    finFiltro = atalho === "vencidos"
+      ? { tipo: "todos", situacao: "vencidos", categoria: "" }
+      : { tipo: atalho, situacao: "abertos", categoria: "" };
+    render();
+  });
+  const categoria = document.getElementById("finCategoria");
+  if (categoria) categoria.onchange = () => { finFiltro.categoria = categoria.value; render(); };
+  view.querySelectorAll("[data-fin-pagar]").forEach((b) => b.onclick = async () => {
+    const lancamento = db.lancamentos.find((l) => sameId(l.id, b.dataset.finPagar));
+    if (!lancamento) return;
+    b.disabled = true;
+    try {
+      await api(`/api/lancamentos/${lancamento.id}`, { method: "PUT", body: JSON.stringify({ status: "pago", pagamento: today() }) });
+      toast(`${lancamento.tipo === "pagar" ? "Pagamento" : "Recebimento"} registrado: ${lancamento.pessoa || lancamento.descricao || lancamento.codigo} · ${money(lancamento.valor)}`, "ok");
+      await load();
+      render();
+    } catch (error) {
+      b.disabled = false;
+      toast(`Não foi possível registrar: ${error.message}`, "bad");
+    }
+  });
+}
 
 function showLoginOverlay(message = "") {
   const overlay = document.getElementById("loginOverlay");

@@ -249,13 +249,98 @@ async function executeMigrations(pool) {
         WHERE produtoId IS NOT NULL AND produtoId <> N'';`,
     String.raw`IF COL_LENGTH('dbo.carcacas', 'valorUnitario') IS NULL
       ALTER TABLE dbo.carcacas ADD valorUnitario decimal(12, 2) NOT NULL
-        CONSTRAINT DF_carcacas_valorUnitario DEFAULT (0) WITH VALUES;`
+        CONSTRAINT DF_carcacas_valorUnitario DEFAULT (0) WITH VALUES;`,
+    String.raw`IF OBJECT_ID('dbo.migracoes_dados', 'U') IS NULL
+      CREATE TABLE dbo.migracoes_dados (
+        nome nvarchar(100) NOT NULL CONSTRAINT PK_migracoes_dados PRIMARY KEY,
+        aplicadaEm datetime2 NOT NULL CONSTRAINT DF_migracoes_dados_aplicadaEm DEFAULT SYSDATETIME()
+      );`,
+    financeiroUnificadoMigration
   ];
   for (const [index, statement] of migrations.entries()) {
     await pool.request().query(statement);
     if (process.env.LOG_SQL_MIGRATIONS === 'true') console.log(`Migração SQL ${index + 1}/${migrations.length} aplicada.`);
   }
 }
+
+// Copia (uma única vez) os registros das abas antigas Entradas e saídas
+// (dbo.financeiro), Pagar e receber (dbo.contas) e Boletos (dbo.boletos) para a
+// tabela unificada dbo.financeiro_lancamentos. As tabelas antigas não são
+// alteradas nem apagadas; o controle fica em dbo.migracoes_dados.
+const financeiroUnificadoMigration = String.raw`IF NOT EXISTS (SELECT 1 FROM dbo.migracoes_dados WHERE nome = N'financeiro-unificado')
+BEGIN
+  SET XACT_ABORT ON;
+  BEGIN TRANSACTION;
+
+  -- Entradas e saídas: movimentos de caixa, já realizados (status pago).
+  IF OBJECT_ID('dbo.financeiro', 'U') IS NOT NULL
+    INSERT INTO dbo.financeiro_lancamentos
+      (criadoEm, tipo, categoriaId, descricao, valor, emissao, vencimento, pagamento, status, origem)
+    SELECT f.criadoEm,
+           CASE WHEN LTRIM(RTRIM(f.tipo)) COLLATE Latin1_General_CI_AI = N'saida' THEN N'pagar' ELSE N'receber' END,
+           fc.id, f.descricao, ISNULL(f.valor, 0),
+           COALESCE(f.data, CAST(f.criadoEm AS date)), COALESCE(f.data, CAST(f.criadoEm AS date)),
+           COALESCE(f.data, CAST(f.criadoEm AS date)), N'pago', N'migrado'
+    FROM dbo.financeiro f
+    LEFT JOIN dbo.financeiroCategoria fc ON fc.nome =
+      CASE LOWER(LTRIM(RTRIM(f.categoria)))
+        WHEN N'venda' THEN N'Venda'
+        WHEN N'recapagem' THEN N'Recapagem / serviço'
+        WHEN N'insumo' THEN N'Insumos / matéria-prima'
+        WHEN N'folha' THEN N'Salários / folha'
+        WHEN N'frete' THEN N'Frete'
+        WHEN N'energia' THEN N'Energia / água / internet'
+        WHEN N'imposto' THEN N'Impostos'
+        ELSE N'Outros'
+      END;
+
+  -- Pagar e receber: títulos. A entidade é vinculada quando o nome bate com um único cadastro.
+  IF OBJECT_ID('dbo.contas', 'U') IS NOT NULL
+    INSERT INTO dbo.financeiro_lancamentos
+      (criadoEm, tipo, categoriaId, entidadeId, pessoa, descricao, documento, valor, emissao, vencimento, status, origem)
+    SELECT c.criadoEm,
+           CASE WHEN LOWER(LTRIM(RTRIM(c.tipo))) = N'pagar' THEN N'pagar' ELSE N'receber' END,
+           fc.id, ent.id, c.pessoa, c.descricao, NULLIF(LTRIM(RTRIM(c.boleto)), N''), ISNULL(c.valor, 0),
+           CAST(c.criadoEm AS date), c.vencimento,
+           CASE LOWER(LTRIM(RTRIM(c.status))) WHEN N'pago' THEN N'pago' WHEN N'cancelado' THEN N'cancelado' ELSE N'pendente' END,
+           N'migrado'
+    FROM dbo.contas c
+    LEFT JOIN dbo.financeiroCategoria fc ON fc.nome =
+      CASE
+        WHEN NULLIF(LTRIM(RTRIM(c.boleto)), N'') IS NULL THEN N'Outros'
+        WHEN LOWER(LTRIM(RTRIM(c.tipo))) = N'pagar' THEN N'Boleto da empresa'
+        ELSE N'Boleto de cliente'
+      END
+    OUTER APPLY (
+      SELECT MIN(CAST(x.id AS nvarchar(36))) AS idTexto, COUNT(*) AS quantidade
+      FROM dbo.clientes x WHERE x.nome = LTRIM(RTRIM(c.pessoa))
+    ) busca
+    OUTER APPLY (SELECT CASE WHEN busca.quantidade = 1 THEN CAST(busca.idTexto AS uniqueidentifier) END AS id) ent;
+
+  -- Boletos: de entidades (a receber) e da empresa (a pagar).
+  IF OBJECT_ID('dbo.boletos', 'U') IS NOT NULL
+    INSERT INTO dbo.financeiro_lancamentos
+      (criadoEm, tipo, categoriaId, entidadeId, pessoa, descricao, documento, valor, emissao, vencimento, status, origem)
+    SELECT b.criadoEm,
+           CASE WHEN LOWER(LTRIM(RTRIM(b.origem))) = N'empresa' THEN N'pagar' ELSE N'receber' END,
+           fc.id, ent.id, b.pessoa,
+           COALESCE(NULLIF(LTRIM(RTRIM(b.ref)), N''), N'Boleto ' + NULLIF(LTRIM(RTRIM(b.numero)), N''), N'Boleto'),
+           NULLIF(LTRIM(RTRIM(b.numero)), N''), ISNULL(b.valor, 0),
+           CAST(b.criadoEm AS date), b.vencimento,
+           CASE LOWER(LTRIM(RTRIM(b.status))) WHEN N'pago' THEN N'pago' WHEN N'cancelado' THEN N'cancelado' ELSE N'pendente' END,
+           N'migrado'
+    FROM dbo.boletos b
+    LEFT JOIN dbo.financeiroCategoria fc ON fc.nome =
+      CASE WHEN LOWER(LTRIM(RTRIM(b.origem))) = N'empresa' THEN N'Boleto da empresa' ELSE N'Boleto de cliente' END
+    OUTER APPLY (
+      SELECT MIN(CAST(x.id AS nvarchar(36))) AS idTexto, COUNT(*) AS quantidade
+      FROM dbo.clientes x WHERE x.nome = LTRIM(RTRIM(b.pessoa))
+    ) busca
+    OUTER APPLY (SELECT CASE WHEN busca.quantidade = 1 THEN CAST(busca.idTexto AS uniqueidentifier) END AS id) ent;
+
+  INSERT INTO dbo.migracoes_dados (nome) VALUES (N'financeiro-unificado');
+  COMMIT TRANSACTION;
+END`;
 
 async function warnDuplicateProductCodes(pool) {
   const result = await pool.request().query(`

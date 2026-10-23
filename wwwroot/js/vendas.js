@@ -68,8 +68,15 @@ function clienteSelecionado() {
 }
 
 function limiteDisponivel(cliente) {
-  const usado = db.pedidos
-    .filter((pedido) => pedido.clienteId === cliente.id && pedido.status === "faturado" && ["boleto", "a prazo"].includes(pedido.pagamento))
+  // Crédito usado = títulos a receber em aberto da entidade no Financeiro. Vendas
+  // antigas a boleto/a prazo, faturadas antes do Financeiro gerar o título, continuam contando.
+  const emAberto = (db.lancamentos || [])
+    .filter((l) => l.tipo === "receber" && sameId(l.entidadeId, cliente.id) && String(l.status || "").toLowerCase() === "pendente")
+    .reduce((soma, l) => soma + (Number(l.valor) || 0), 0);
+  const pedidosComTitulo = new Set((db.lancamentos || []).filter((l) => l.pedidoId).map((l) => String(l.pedidoId).toLowerCase()));
+  const usado = emAberto + db.pedidos
+    .filter((pedido) => pedido.clienteId === cliente.id && pedido.status === "faturado" && ["boleto", "a prazo"].includes(pedido.pagamento)
+      && !pedidosComTitulo.has(String(pedido.id).toLowerCase()))
     .reduce((soma, pedido) => soma + totalPedido(pedido), 0);
   return Math.max(0, Number(cliente.limiteCredito || 0) - usado);
 }
@@ -339,6 +346,11 @@ function pagamentoEtapaMarkup() {
       <label>Data<input id="dataAgendaVenda" type="date" value="${escapeHtml(vendaRascunho.agendamento)}"></label>
       <label>Horário<input id="horarioVenda" type="time" value="${escapeHtml(vendaRascunho.horario)}"></label>
     </div>
+    <h3 class="venda-agenda-titulo">Observações (opcional)</h3>
+    <label class="venda-obs">Observação do pedido
+      <textarea id="obsVenda" maxlength="500" rows="3" placeholder="Ex.: cliente retira na sexta; conferir calibragem.">${escapeHtml(vendaRascunho.obs || "")}</textarea>
+      <small class="hint" id="obsVendaContador">${String(vendaRascunho.obs || "").length}/500 · aparece no PDF somente se preenchida</small>
+    </label>
     <div class="venda-navegacao">
       <button class="btn ghost" type="button" data-anterior>← Anterior</button>
       <div class="venda-acoes-salvar">
@@ -499,6 +511,12 @@ function renderVenda() {
   if (dataAgenda) dataAgenda.onchange = () => { vendaRascunho.agendamento = dataAgenda.value; };
   const horario = document.getElementById("horarioVenda");
   if (horario) horario.onchange = () => { vendaRascunho.horario = horario.value; };
+  const obsVenda = document.getElementById("obsVenda");
+  if (obsVenda) obsVenda.oninput = () => {
+    vendaRascunho.obs = obsVenda.value;
+    const contador = document.getElementById("obsVendaContador");
+    if (contador) contador.textContent = `${obsVenda.value.length}/500 · aparece no PDF somente se preenchida`;
+  };
   const salvar = document.getElementById("salvarVenda");
   if (salvar) salvar.onclick = () => concluirVenda(false);
   const salvarPdf = document.getElementById("salvarVendaPdf");
@@ -598,6 +616,7 @@ function renderPedido() {
       <div><dt>Agendamento</dt><dd>${br(pedido.agendamento)} ${escapeHtml(pedido.horario)}</dd></div>
       <div><dt>Box</dt><dd>${escapeHtml(pedido.box || "—")}</dd></div>
     </dl>
+    ${String(pedido.obs || "").trim() ? `<div class="venda-obs-detalhe"><span class="meta">Observações</span><p>${escapeHtml(String(pedido.obs).trim())}</p></div>` : ""}
     <div class="table-wrap" style="margin-top:16px"><table><thead><tr><th>Item</th><th>Tipo</th><th>Qtd.</th><th>Unitário</th><th>Total</th></tr></thead><tbody>
       ${pedido.itens.map((item) => `<tr><td>${escapeHtml(item.descricao)} ${escapeHtml(item.medida)}</td><td>${item.tipo === "servico" ? "Serviço" : "Pneu"}</td><td>${item.qtd}</td><td>${money(item.unitario)}</td><td>${money(item.qtd * item.unitario)}</td></tr>`).join("")}
     </tbody></table></div>
