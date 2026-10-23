@@ -1118,13 +1118,13 @@ async function removeRow(kind, id) {
   } catch (error) { toast(`Não foi possível excluir: ${error.message}`, "bad"); }
 }
 
-function table(kind, heads, map) {
+function table(kind, heads, map, acoesExtras = () => "") {
   const q = query.toLowerCase();
   const rows = db[kind].filter((row) => !q || JSON.stringify(row).toLowerCase().includes(q));
   return `<div class="toolbar"><input id="q" placeholder="Filtrar" value="${escapeAttr(query)}" /></div>
     <div class="table-wrap"><table><thead><tr>${heads.map((h) => `<th>${h}</th>`).join("")}<th></th></tr></thead><tbody>
     ${rows.map((row) => `<tr>${map(row).map((c) => `<td>${c}</td>`).join("")}
-      <td><button class="btn ghost small" data-edit="${kind}:${row.id}">Editar</button>
+      <td class="tabela-acoes">${acoesExtras(row)}<button class="btn ghost small" data-edit="${kind}:${row.id}">Editar</button>
       <button class="btn danger small" data-del="${kind}:${row.id}">Excluir</button></td></tr>`).join("") || `<tr><td colspan="${heads.length + 1}">Nenhum registro.</td></tr>`}
     </tbody></table></div>`;
 }

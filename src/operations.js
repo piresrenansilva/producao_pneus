@@ -1296,6 +1296,41 @@ async function getCarcacaOrdemForPdf(pool, id) {
   return { ...ordem, itens: itensResult.recordset };
 }
 
+// Dados do movimento de carga/descarga para o PDF (romaneio).
+async function getCargaForPdf(pool, id) {
+  const validId = parseGuid(id, 'Identificador do movimento');
+  const cargaResult = await pool.request()
+    .input('id', sql.UniqueIdentifier, validId)
+    .query(`SELECT c.id, c.tipo, CONVERT(nvarchar(10), c.data, 23) AS data, c.placa, c.motorista, c.funcionario,
+                   c.transportadora, c.parceiro, c.nf, c.qtd, c.item, c.status, c.estoqueMovimentado,
+                   p.id AS pedidoId, p.numero AS pedidoNumero, COALESCE(cl.nome, p.cliente) AS cliente,
+                   cl.documento AS clienteDocumento
+            FROM dbo.cargas c
+            LEFT JOIN dbo.pedidos p ON p.id = c.pedidoId
+            LEFT JOIN dbo.clientes cl ON cl.id = p.clienteId
+            WHERE c.id = @id`);
+  const carga = cargaResult.recordset[0];
+  if (!carga) throw notFound('Movimento não encontrado.');
+  const itensResult = await pool.request()
+    .input('id', sql.UniqueIdentifier, validId)
+    .query(`SELECT produtoId, item, medida, qtd FROM dbo.carga_itens WHERE cargaId = @id ORDER BY criadoEm, id`);
+  let itens = itensResult.recordset;
+  let itensDaVenda = false;
+  if (!itens.length && carga.item) {
+    // Registro antigo: um único produto gravado no próprio movimento.
+    itens = [{ produtoId: '', item: carga.item, medida: '', qtd: carga.qtd }];
+  } else if (!itens.length && carga.pedidoId) {
+    // Movimento antigo vinculado à venda, sem produtos próprios: usa os pneus da venda.
+    const vendaResult = await pool.request()
+      .input('id', sql.UniqueIdentifier, carga.pedidoId)
+      .query(`SELECT produtoId, descricao AS item, medida, qtd FROM dbo.pedido_itens
+              WHERE pedidoId = @id AND ISNULL(tipo, N'pneu') <> N'servico' ORDER BY criadoEm, id`);
+    itens = vendaResult.recordset;
+    itensDaVenda = itens.length > 0;
+  }
+  return { ...carga, itens, itensDaVenda };
+}
+
 module.exports = {
   getAllData,
   createRow,
@@ -1306,6 +1341,7 @@ module.exports = {
   createOrUpdateCarga,
   getOrderForPdf,
   getCarcacaOrdemForPdf,
+  getCargaForPdf,
   parseGuid,
   diasParcelas,
   normalizeSaleUnitPrice

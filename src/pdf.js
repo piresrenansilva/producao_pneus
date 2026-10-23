@@ -1,7 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const PDFDocument = require('pdfkit');
-const { getOrderForPdf, getCarcacaOrdemForPdf } = require('./operations');
+const { getOrderForPdf, getCarcacaOrdemForPdf, getCargaForPdf } = require('./operations');
 
 const money = (value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value) || 0);
 const safe = (value) => String(value == null ? '' : value).replace(/[\r\n\t]+/g, ' ').trim();
@@ -325,4 +325,110 @@ async function createCarcacaOrdemPdf(pool, id) {
   return { buffer, filename: `Apontamento-${filename}.pdf` };
 }
 
-module.exports = { createOrderPdf, createCarcacaOrdemPdf };
+// Romaneio de carga / descarga: dados do transporte, venda vinculada, produtos e assinaturas.
+async function createCargaPdf(pool, id) {
+  const carga = await getCargaForPdf(pool, id);
+  const { darkGreen, soft, line, ink, zebra } = PDF_COLORS;
+  const descarga = String(carga.tipo || '').toLowerCase() === 'descarga';
+  const tipoTexto = descarga ? 'DESCARGA' : 'CARGA';
+  const referencia = String(carga.id || '').slice(0, 8).toUpperCase();
+  const itens = carga.itens || [];
+  const totalPecas = itens.reduce((sum, item) => sum + (Number(item.qtd) || 0), 0);
+
+  const buffer = await renderPdf({ Title: `${descarga ? 'Descarga' : 'Carga'} ${referencia}`, Author: 'Fábrica de Pneus' }, (doc) => {
+    const left = 48;
+    const right = doc.page.width - 48;
+    const contentWidth = right - left;
+    const bottomLimit = doc.page.height - 75;
+    drawCompanyHeader(doc, { title: `ROMANEIO DE ${tipoTexto}`, numberLabel: 'REFERÊNCIA', number: referencia, date: carga.data });
+
+    // Dados do movimento, em blocos de 3 colunas (campos vazios não aparecem)
+    let y = 184;
+    const colWidth = contentWidth / 3;
+    const campos = [
+      ['TIPO', descarga ? 'Descarga (entrada)' : 'Carga (saída)'],
+      ['STATUS', capitalize(carga.status)],
+      ['VENDA VINCULADA', safe(carga.pedidoNumero)],
+      ['CLIENTE', safe(carga.cliente || carga.parceiro)],
+      ['CPF / CNPJ', safe(carga.clienteDocumento)],
+      ['NOTA FISCAL', safe(carga.nf)],
+      ['MOTORISTA', safe(carga.motorista)],
+      ['FUNCIONÁRIO RESPONSÁVEL', safe(carga.funcionario)]
+    ].filter(([, value]) => value);
+    for (let i = 0; i < campos.length; i += 3) {
+      let alturaLinha = 0;
+      campos.slice(i, i + 3).forEach(([label, value], indice) => {
+        const x = left + colWidth * indice;
+        const texto = value;
+        doc.font('Helvetica-Bold').fontSize(8).fillColor(darkGreen).text(label, x, y, { width: colWidth - 10 });
+        doc.font('Helvetica').fontSize(10).fillColor(ink).text(texto, x, y + 12, { width: colWidth - 10 });
+        alturaLinha = Math.max(alturaLinha, 14 + doc.heightOfString(texto, { width: colWidth - 10 }));
+      });
+      y += alturaLinha + 10;
+    }
+
+    // Tabela de produtos
+    y += 6;
+    const col = { code: left, desc: left + 80, medida: right - 190, qty: right - 70 };
+    const tableHeader = () => {
+      doc.rect(left, y, contentWidth, 25).fill(darkGreen);
+      doc.font('Helvetica-Bold').fontSize(8).fillColor('#FFFFFF')
+        .text('CÓD.', col.code + 8, y + 8, { width: 70 })
+        .text('PRODUTO', col.desc, y + 8, { width: col.medida - col.desc - 8 })
+        .text('MEDIDA', col.medida, y + 8, { width: 110 })
+        .text('QTD.', col.qty, y + 8, { width: 62, align: 'right' });
+      y += 25;
+    };
+    tableHeader();
+    const rows = Math.max(6, itens.length);
+    for (let i = 0; i < rows; i += 1) {
+      const item = itens[i];
+      const nome = item ? safe(item.item) : '';
+      doc.font('Helvetica').fontSize(8);
+      const height = item ? Math.max(26, doc.heightOfString(nome, { width: col.medida - col.desc - 10 }) + 14) : 26;
+      if (y + height > bottomLimit) { doc.addPage(); y = 50; tableHeader(); }
+      if (i % 2 === 0) doc.rect(left, y, contentWidth, height).fill(zebra);
+      doc.moveTo(left, y + height).lineTo(right, y + height).lineWidth(0.5).strokeColor(line).stroke();
+      if (item) {
+        doc.font('Helvetica').fontSize(8).fillColor(ink)
+          .text(safe(item.produtoId), col.code + 8, y + 9, { width: 70 })
+          .text(nome, col.desc, y + 8, { width: col.medida - col.desc - 10 })
+          .text(safe(item.medida), col.medida, y + 9, { width: 110 })
+          .text(String(Number(item.qtd) || 0), col.qty, y + 9, { width: 62, align: 'right' });
+      }
+      y += height;
+    }
+    if (carga.itensDaVenda) {
+      y += 6;
+      doc.font('Helvetica-Oblique').fontSize(8).fillColor(soft).text(`Produtos conforme a venda ${safe(carga.pedidoNumero)}.`, left, y, { width: contentWidth });
+      y += 10;
+    }
+
+    // Total de peças
+    if (y + 170 > bottomLimit) { doc.addPage(); y = 50; }
+    y += 16;
+    const summaryX = right - 230;
+    doc.rect(summaryX, y, 230, 34).fill(zebra);
+    doc.rect(summaryX, y, 110, 34).fill('#111111');
+    doc.font('Helvetica-Bold').fontSize(10).fillColor('#FFFFFF').text('TOTAL DE PEÇAS', summaryX + 8, y + 12, { width: 94, align: 'center' });
+    doc.font('Helvetica-Bold').fontSize(14).fillColor('#111111').text(String(totalPecas), summaryX + 118, y + 9, { width: 104, align: 'right' });
+
+    // Assinaturas
+    y += 100;
+    const signWidth = (contentWidth - 40) / 2;
+    const assinaturas = descarga
+      ? [['Motorista / entregue por', left], ['Recebido / conferido por', left + signWidth + 40]]
+      : [['Conferido / expedido por', left], ['Motorista / recebido por', left + signWidth + 40]];
+    assinaturas.forEach(([label, x]) => {
+      doc.moveTo(x, y).lineTo(x + signWidth, y).lineWidth(0.8).strokeColor('#9AA79F').stroke();
+      doc.font('Helvetica').fontSize(8).fillColor(soft).text(label, x, y + 6, { width: signWidth, align: 'center' });
+    });
+
+    drawFooters(doc, `MS PNEUS · ROMANEIO DE ${tipoTexto} · Francisco Beltrão - PR`);
+  });
+
+  const nome = [descarga ? 'Descarga' : 'Carga', carga.data || '', referencia].filter(Boolean).join('-').replace(/[^A-Za-z0-9_-]/g, '_');
+  return { buffer, filename: `${nome}.pdf` };
+}
+
+module.exports = { createOrderPdf, createCarcacaOrdemPdf, createCargaPdf };

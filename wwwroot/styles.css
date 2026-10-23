@@ -2343,3 +2343,8 @@ label.campo-inativo {
   padding-left: 18px;
   color: var(--muted);
 }
+
+/* Botões de ação das tabelas na mesma linha */
+.tabela-acoes {
+  white-space: nowrap;
+}

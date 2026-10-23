@@ -27,6 +27,14 @@ function render() {
     const [kind, id] = b.dataset.edit.split(":");
     openForm(kind, db[kind].find((row) => sameId(row.id, id)));
   });
+  view.querySelectorAll("[data-pdf-carga]").forEach((b) => b.onclick = async () => {
+    const textoOriginal = b.textContent;
+    b.disabled = true;
+    b.textContent = "Gerando...";
+    try { await baixarArquivo(`/api/cargas/${b.dataset.pdfCarga}/pdf`, "romaneio.pdf"); }
+    catch (error) { toast(`Não foi possível gerar o PDF: ${error.message}`, "bad"); }
+    finally { b.disabled = false; b.textContent = textoOriginal; }
+  });
   view.querySelectorAll("[data-pdf-carcaca]").forEach((b) => b.onclick = async () => {
     const textoOriginal = b.textContent;
     b.disabled = true;
@@ -181,7 +189,7 @@ const views = {
       escapeHtml(r.tipo), br(r.data), escapeHtml(venda?.numero || "—"), escapeHtml(cliente),
       produtos, pecas, estoque, escapeHtml(r.motorista), escapeHtml(r.funcionario), badge(r.status)
     ];
-  }); },
+  }, (r) => `<button class="btn ghost small" type="button" data-pdf-carga="${escapeAttr(r.id)}">PDF</button> `); },
   vendas() {
     const q = query.toLowerCase();
     const situacoes = new Map(db.pedidos.map((p) => [p.id, situacaoVenda(p)]));

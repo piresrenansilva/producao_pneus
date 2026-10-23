@@ -23,7 +23,7 @@ const {
   createOrUpdateCarga,
   parseGuid
 } = require('./src/operations');
-const { createOrderPdf, createCarcacaOrdemPdf } = require('./src/pdf');
+const { createOrderPdf, createCarcacaOrdemPdf, createCargaPdf } = require('./src/pdf');
 
 if (!process.env.JWT_KEY) {
   if (process.env.NODE_ENV === 'production') {
@@ -211,6 +211,13 @@ app.post('/api/cargas', asyncRoute(async (req, res) => {
 app.put('/api/cargas/:id', asyncRoute(async (req, res) => {
   const id = parseGuid(req.params.id, 'Identificador do movimento');
   res.json(await createOrUpdateCarga(pool, req.body, id));
+}));
+app.get('/api/cargas/:id/pdf', asyncRoute(async (req, res) => {
+  const pdf = await createCargaPdf(pool, req.params.id);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${pdf.filename}"`);
+  res.setHeader('Content-Length', pdf.buffer.length);
+  res.send(pdf.buffer);
 }));
 
 app.get('/api/pedidos/:id/pdf', asyncRoute(async (req, res) => {
