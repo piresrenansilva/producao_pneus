@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fábrica de Pneus</title>
+  <script>
+    // Aplica o tema salvo antes da primeira renderização (evita "flash" do tema errado)
+    (function () { try { if (localStorage.getItem("gp-tema") === "dark") document.documentElement.setAttribute("data-theme", "dark"); } catch (e) { } })();
+  </script>
+  <link rel="stylesheet" href="styles.css?v=20261021-apontamento-carcacas-lista5" />
+</head>
+
+<body>
+  <div class="app">
+    <aside>
+      <div class="brand">
+        <div class="brand-logo"><img src="/fotos/logo/logo.PNG" alt="Logo da empresa"
+            onerror="this.style.display='none'; this.parentElement.classList.add('no-logo')"><span>LOGO</span></div>
+        <strong>Fábrica de Pneus</strong>
+      </div>
+      <nav id="nav"></nav>
+      <button type="button" class="theme-toggle" id="themeToggle" aria-pressed="false"
+        aria-label="Mudar para o tema escuro" title="Mudar para o tema escuro">
+        <svg data-icon-moon viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+          stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+        </svg>
+        <svg data-icon-sun viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
+          <circle cx="12" cy="12" r="4" />
+          <path
+            d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+        </svg>
+        <span data-theme-label>Escuro</span>
+      </button>
+      <div class="versao-app" title="Versão da interface em execução">versão 2026.10.21-carcacas-lista5</div>
+    </aside>
+    <main>
+      <header class="top">
+        <div>
+          <h1 id="title">Painel</h1>
+          <p class="lede" id="lede"></p>
+        </div>
+        <div class="row" id="actions"></div>
+      </header>
+      <div id="view"></div>
+    </main>
+  </div>
+  <div class="modal-back" id="modal">
+    <form class="modal" id="form" autocomplete="new-password" data-lpignore="true">
+      <input type="text" style="display:none" autocomplete="username">
+      <input type="password" style="display:none" autocomplete="new-password">
+      <h2 id="modalTitle">Registro</h2>
+      <div class="grid" id="formFields" style="margin-top:12px"></div>
+      <div class="row" style="justify-content:flex-end;margin-top:12px">
+        <button type="button" class="btn ghost" id="cancelBtn">Cancelar</button>
+        <button class="btn" type="submit">Salvar</button>
+      </div>
+    </form>
+  </div>
+  <script src="js/theme.js" defer></script>
+  <script src="js/utils.js?v=20261021-apontamento-carcacas-lista5" defer></script>
+  <script src="js/forms.js?v=20261021-apontamento-carcacas-lista5" defer></script>
+  <script src="js/vendas.js?v=20261021-apontamento-carcacas-lista5" defer></script>
+  <script src="js/app.js?v=20261021-apontamento-carcacas-lista5" defer></script>
+
+  <div id="loginOverlay" class="login-overlay" role="dialog" aria-modal="true" aria-labelledby="loginTitle" hidden>
+    <form id="loginForm" class="login-card" autocomplete="off">
+      <div class="login-brand">Fábrica de Pneus</div>
+      <h2 id="loginTitle">Entrar no sistema</h2>
+      <label>Usuário
+        <input id="loginUser" name="account-entry" type="text" maxlength="100" required autocomplete="off"
+          autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore data-bwignore>
+      </label>
+      <label>Senha
+        <input id="loginPass" name="access-key" type="password" maxlength="256" required autocomplete="off"
+          data-lpignore="true" data-1p-ignore data-bwignore>
+      </label>
+      <label id="loginConfirmationLabel" hidden>
+        Confirmar senha
+        <input id="loginPassConfirmation" name="access-key-confirmation" type="password" maxlength="256"
+          autocomplete="off" data-lpignore="true" data-1p-ignore data-bwignore>
+      </label>
+      <button id="loginButton" type="submit" class="btn" style="width:100%;margin-top:8px;">
+        Entrar
+      </button>
+      <p id="loginError" class="login-error" role="alert" aria-live="polite"></p>
+    </form>
+  </div>
+</body>
+
+</html>
