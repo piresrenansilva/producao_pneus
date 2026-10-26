@@ -174,7 +174,7 @@ const views = {
     return [escapeHtml(r.produtoId || produto?.produtoId || ""), escapeHtml(produto?.nome || r.item || ""), escapeHtml(r.medida || produto?.medida || ""), r.qtd, r.minimo];
   }); },
   producao() { return table("producao", ["Data", "Turno", "Medida", "Qtd", "Operador", "Status"], (r) => [br(r.data), escapeHtml(r.turno), escapeHtml(r.medida), r.qtd, escapeHtml(r.operador), badge(r.status)]); },
-  cargas() { return table("cargas", ["Tipo", "Data", "Venda", "Cliente", "Produtos", "Peças", "Estoque", "Motorista", "Funcionário", "Status"], (r) => {
+  cargas() { return table("cargas", ["Tipo", "Data", "Venda", "Cliente", "Produtos", "Peças", "Valor", "Estoque", "Motorista", "Funcionário", "Status"], (r) => {
     const venda = db.pedidos.find((pedido) => sameId(pedido.id, r.pedidoId));
     const cliente = venda?.cliente || db.clientes.find((item) => sameId(item.id, venda?.clienteId))?.nome || "—";
     const itens = Array.isArray(r.itens) ? r.itens : [];
@@ -187,7 +187,7 @@ const views = {
       : "—";
     return [
       escapeHtml(r.tipo), br(r.data), escapeHtml(venda?.numero || "—"), escapeHtml(cliente),
-      produtos, pecas, estoque, escapeHtml(r.motorista), escapeHtml(r.funcionario), badge(r.status)
+      produtos, pecas, valorCarga(itens), estoque, escapeHtml(r.motorista), escapeHtml(r.funcionario), badge(r.status)
     ];
   }, (r) => `<button class="btn ghost small" type="button" data-pdf-carga="${escapeAttr(r.id)}">PDF</button> `); },
   vendas() {
@@ -337,6 +337,19 @@ const views = {
 
 // ===== Financeiro: situação, ordenação e ações da lista =====
 // pendente com vencimento já passado aparece como "vencido".
+// Valor do movimento = soma de quantidade × preço (gravado no movimento ou, se vazio, o do cadastro do produto).
+function precoItemCarga(item) {
+  const gravado = Number(item.valorUnitario);
+  if (gravado > 0) return gravado;
+  const catalogo = Number((db.produtos || []).find((produto) => sameId(produto.id, item.produtoRef))?.preco);
+  return catalogo > 0 ? catalogo : 0;
+}
+function valorCarga(itens) {
+  const comPreco = (itens || []).filter((item) => precoItemCarga(item) > 0);
+  if (!comPreco.length) return "—";
+  return money(comPreco.reduce((soma, item) => soma + (Number(item.qtd) || 0) * precoItemCarga(item), 0));
+}
+
 // Paginação: "Mostrando 21–40 de 57" + Anterior · 1 … 4 5 6 … 9 · Próxima.
 function paginacaoMarkup(atual, totalPaginas, totalItens, inicio, naPagina, atributo) {
   if (totalPaginas <= 1) return totalItens ? `<p class="paginacao-info">${totalItens} pedido(s)</p>` : "";

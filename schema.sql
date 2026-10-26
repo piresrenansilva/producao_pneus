@@ -334,7 +334,8 @@ CREATE TABLE dbo.carga_itens (
     produtoId  nvarchar(60)     NULL,
     item       nvarchar(200)    NULL,
     medida     nvarchar(60)     NULL,
-    qtd        int              NOT NULL CONSTRAINT DF_carga_itens_qtd DEFAULT 0
+    qtd        int              NOT NULL CONSTRAINT DF_carga_itens_qtd DEFAULT 0,
+    valorUnitario decimal(12, 2) NULL -- preço digitado no movimento (NULL = não informado)
 );
 GO
 

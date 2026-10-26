@@ -127,6 +127,7 @@ const FORMS = {
         <p class="hint carga-estoque-aviso" id="cargaEstoqueAviso" aria-live="polite"></p>
         <div class="apontamento-selecionados" id="cargaProdutosSelecionados"></div>
         <div class="apontamento-total-geral"><span>Total de peças</span><output id="totalPecasCarga" aria-live="polite">0</output></div>
+        <div class="apontamento-total-geral carga-total-valor"><span>Valor total</span><output id="totalValorCarga" aria-live="polite">R$ 0,00</output></div>
       </aside>
     </div>`
   ].join(""),
@@ -596,18 +597,22 @@ function openForm(kind, row) {
       .filter((produto) => String(produto.status || "").toLocaleLowerCase("pt-BR") !== "inativo")
       .sort((a, b) => String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR"));
     const produtoPorId = (id) => db.produtos.find((produto) => sameId(produto.id, id));
+    const tipoAtual = () => String(tipoSel?.value || "").toLowerCase();
+    const precoOuNulo = (valor) => { const numero = Number(valor); return Number.isFinite(numero) && numero > 0 ? numero : null; };
+    // Preço inicial: o gravado no movimento; senão o da venda vinculada; senão o preço do cadastro do produto.
+    const precoInicial = (produto, legado) => precoOuNulo(legado.valorUnitario) || precoOuNulo(legado.unitario) || precoOuNulo(produto?.preco);
     const novoItem = (produto, qtd, legado = {}) => ({
       produtoRef: produto?.id || legado.produtoRef,
       produtoId: produto?.produtoId || legado.produtoId || "",
       nome: produto?.nome || legado.item || "Produto",
       medida: produto?.medida || legado.medida || "",
-      qtd: Math.max(1, Math.floor(Number(qtd) || 1))
+      qtd: Math.max(1, Math.floor(Number(qtd) || 1)),
+      valorUnitario: precoInicial(produto, legado)
     });
     (Array.isArray(row?.itens) ? row.itens : []).forEach((item) => {
       if (!item.produtoRef) return;
       selecionados.set(chaveDe(item.produtoRef), novoItem(produtoPorId(item.produtoRef), item.qtd, item));
     });
-    const tipoAtual = () => String(tipoSel?.value || "").toLowerCase();
     const movimentaEstoque = () => tipoAtual() === "descarga" || (tipoAtual() === "carga" && !vendaSelect?.value);
     const estoqueDe = (produtoRef) => { const produto = produtoPorId(produtoRef); return produto ? estoqueLocal(produto) : 0; };
 
@@ -624,6 +629,13 @@ function openForm(kind, row) {
       const total = itens.reduce((soma, item) => soma + item.qtd, 0);
       const totalEl = document.getElementById("totalPecasCarga");
       if (totalEl) totalEl.textContent = `${total} ${total === 1 ? "peça" : "peças"}`;
+      const valorTotal = itens.reduce((soma, item) => soma + item.qtd * (item.valorUnitario || 0), 0);
+      const valorEl = document.getElementById("totalValorCarga");
+      if (valorEl) valorEl.textContent = money(valorTotal);
+      selecionadosEl?.querySelectorAll("[data-carga-total]").forEach((celula) => {
+        const item = selecionados.get(celula.dataset.cargaTotal);
+        celula.textContent = item?.valorUnitario ? money(item.qtd * item.valorUnitario) : "—";
+      });
       const resumoEl = document.getElementById("cargaResumoProdutos");
       if (resumoEl) resumoEl.textContent = itens.length ? ` · ${itens.length} ${itens.length === 1 ? "produto" : "produtos"}` : "";
       // Destaca linhas de saída acima do estoque atual (o servidor faz a validação final).
@@ -638,15 +650,16 @@ function openForm(kind, row) {
       const itens = [...selecionados.values()];
       selecionadosEl.innerHTML = itens.length
         ? `<table class="apontamento-tabela carga-tabela">
-            <thead><tr><th>Cód.</th><th>Produto</th><th>Medida</th><th class="apontamento-num">Estoque</th><th class="apontamento-num">Qtd</th><th></th></tr></thead>
+            <thead><tr><th>Cód.</th><th>Produto</th><th class="apontamento-num" title="Estoque atual">Est.</th><th class="apontamento-num">Qtd</th><th class="apontamento-num" title="Preço unitário em R$">Unitário</th><th class="apontamento-num">Total</th><th></th></tr></thead>
             <tbody>${itens.map((item) => {
               const chave = chaveDe(item.produtoRef);
               return `<tr data-carga-item="${escapeAttr(chave)}">
                 <td class="mono">${escapeHtml(item.produtoId || "—")}</td>
-                <td>${escapeHtml(item.nome)}</td>
-                <td>${escapeHtml(item.medida || "—")}</td>
+                <td>${escapeHtml(item.nome)}${item.medida ? `<small class="carga-item-medida">${escapeHtml(item.medida)}</small>` : ""}</td>
                 <td class="apontamento-num">${estoqueDe(item.produtoRef)}</td>
                 <td class="apontamento-num"><input type="number" min="1" step="1" value="${item.qtd}" data-carga-qtd="${escapeAttr(chave)}" aria-label="Quantidade de ${escapeAttr(item.nome)}"></td>
+                <td class="apontamento-num"><input type="text" value="${item.valorUnitario || 0}" data-carga-preco="${escapeAttr(chave)}" aria-label="Preço unitário de ${escapeAttr(item.nome)}"></td>
+                <td class="apontamento-num carga-linha-total" data-carga-total="${escapeAttr(chave)}">—</td>
                 <td class="apontamento-num"><button type="button" class="btn danger small apontamento-remove" data-carga-remove="${escapeAttr(chave)}" aria-label="Remover ${escapeAttr(item.nome)}">×</button></td>
               </tr>`;
             }).join("")}</tbody>
@@ -662,6 +675,18 @@ function openForm(kind, row) {
         if (!item) return;
         item.qtd = Math.max(1, Math.floor(Number(input.value) || 1));
         atualizarTotais();
+      });
+      selecionadosEl.querySelectorAll("[data-carga-preco]").forEach((input) => {
+        const numero = Number(input.value);
+        input.value = (Number.isFinite(numero) ? numero : 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        aplicarMascaraPreco(input);
+        input.addEventListener("focus", () => input.select());
+        input.addEventListener("input", () => {
+          const item = selecionados.get(input.dataset.cargaPreco);
+          if (!item) return;
+          item.valorUnitario = precoOuNulo(parsePrecoBR(input.value));
+          atualizarTotais();
+        });
       });
       atualizarTotais();
     };
@@ -712,7 +737,7 @@ function openForm(kind, row) {
         const chave = chaveDe(item.produtoRef);
         const atual = selecionados.get(chave);
         if (atual) atual.qtd += Math.max(1, Math.floor(Number(item.qtd) || 1));
-        else selecionados.set(chave, novoItem(produtoPorId(item.produtoRef), item.qtd, { produtoRef: item.produtoRef, produtoId: item.produtoId, item: item.descricao, medida: item.medida }));
+        else selecionados.set(chave, novoItem(produtoPorId(item.produtoRef), item.qtd, { produtoRef: item.produtoRef, produtoId: item.produtoId, item: item.descricao, medida: item.medida, unitario: item.unitario }));
       });
       renderSelecionados();
       renderResultados();
@@ -728,7 +753,11 @@ function openForm(kind, row) {
 
     form.onsubmit = async (event) => {
       event.preventDefault();
-      const itens = [...selecionados.values()].map((item) => ({ produtoRef: item.produtoRef, qtd: Math.max(0, Math.floor(Number(item.qtd) || 0)) }));
+      const itens = [...selecionados.values()].map((item) => ({
+        produtoRef: item.produtoRef,
+        qtd: Math.max(0, Math.floor(Number(item.qtd) || 0)),
+        valorUnitario: item.valorUnitario || null
+      }));
       if (!itens.length) { toast("Selecione ao menos um produto para o movimento.", "warn"); return; }
       if (itens.some((item) => item.qtd < 1)) { toast("Cada produto deve ter quantidade igual ou maior que 1.", "warn"); return; }
       const body = {

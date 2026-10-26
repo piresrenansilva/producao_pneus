@@ -1190,8 +1190,12 @@ async function createOrUpdateCarga(pool, body, existingCargaId = null) {
     if (!productRef) throw conflict('Um dos produtos do movimento não é válido.');
     const quantity = parseNumber(item.qtd, 'Quantidade', { integer: true });
     if (quantity < 1) throw conflict('Cada produto deve ter uma quantidade inteira maior que zero.');
+    // Preço unitário opcional digitado no movimento (vazio ou zero = não informado).
+    const informado = item.valorUnitario != null && String(item.valorUnitario).trim() !== '';
+    const unitPrice = informado ? normalizeSaleUnitPrice(item.valorUnitario, 0, 'Preço unitário') : null;
     const key = productRef.toLowerCase();
-    requested.set(key, { productRef, quantity: (requested.get(key)?.quantity || 0) + quantity });
+    const anterior = requested.get(key);
+    requested.set(key, { productRef, quantity: (anterior?.quantity || 0) + quantity, unitPrice: unitPrice || anterior?.unitPrice || null });
   }
 
   const transaction = new sql.Transaction(pool);
@@ -1217,7 +1221,7 @@ async function createOrUpdateCarga(pool, body, existingCargaId = null) {
     if (pedidoId) await validateCargaPedido(transaction, pedidoId, existingCargaId);
 
     const normalizedItems = [];
-    for (const { productRef, quantity } of requested.values()) {
+    for (const { productRef, quantity, unitPrice } of requested.values()) {
       const productResult = await new sql.Request(transaction)
         .input('id', sql.UniqueIdentifier, productRef)
         .query('SELECT produtoId, nome, medida, status FROM dbo.produtos WHERE id = @id');
@@ -1226,7 +1230,7 @@ async function createOrUpdateCarga(pool, body, existingCargaId = null) {
       if (String(product.status || '').toLowerCase() === 'inativo' && !previousRefs.has(productRef.toLowerCase())) {
         throw conflict(`O produto ${product.nome} está inativo.`);
       }
-      normalizedItems.push({ productRef, quantity, code: product.produtoId || '', name: product.nome || '', measure: product.medida || '' });
+      normalizedItems.push({ productRef, quantity, unitPrice, code: product.produtoId || '', name: product.nome || '', measure: product.medida || '' });
     }
     const totalQuantity = normalizedItems.reduce((sum, item) => sum + item.quantity, 0);
     const movimenta = cargaMovimentaEstoque(tipo, pedidoId);
@@ -1266,8 +1270,9 @@ async function createOrUpdateCarga(pool, body, existingCargaId = null) {
         .input('item', sql.NVarChar(200), item.name)
         .input('medida', sql.NVarChar(60), item.measure)
         .input('qtd', sql.Int, item.quantity)
-        .query(`INSERT INTO dbo.carga_itens (cargaId, produtoRef, produtoId, item, medida, qtd)
-                VALUES (@cargaId, @produtoRef, @produtoId, @item, @medida, @qtd)`);
+        .input('valorUnitario', sql.Decimal(12, 2), item.unitPrice)
+        .query(`INSERT INTO dbo.carga_itens (cargaId, produtoRef, produtoId, item, medida, qtd, valorUnitario)
+                VALUES (@cargaId, @produtoRef, @produtoId, @item, @medida, @qtd, @valorUnitario)`);
       if (movimenta) {
         await changeStock(transaction, item.productRef, tipo === 'descarga' ? item.quantity : -item.quantity, item.name);
       }
@@ -1313,7 +1318,11 @@ async function getCargaForPdf(pool, id) {
   if (!carga) throw notFound('Movimento não encontrado.');
   const itensResult = await pool.request()
     .input('id', sql.UniqueIdentifier, validId)
-    .query(`SELECT produtoId, item, medida, qtd FROM dbo.carga_itens WHERE cargaId = @id ORDER BY criadoEm, id`);
+    .query(`SELECT ci.produtoId, ci.item, ci.medida, ci.qtd,
+                   COALESCE(ci.valorUnitario, NULLIF(pr.preco, 0)) AS valorUnitario
+            FROM dbo.carga_itens ci
+            LEFT JOIN dbo.produtos pr ON pr.id = ci.produtoRef
+            WHERE ci.cargaId = @id ORDER BY ci.criadoEm, ci.id`);
   let itens = itensResult.recordset;
   let itensDaVenda = false;
   if (!itens.length && carga.item) {
@@ -1323,7 +1332,7 @@ async function getCargaForPdf(pool, id) {
     // Movimento antigo vinculado à venda, sem produtos próprios: usa os pneus da venda.
     const vendaResult = await pool.request()
       .input('id', sql.UniqueIdentifier, carga.pedidoId)
-      .query(`SELECT produtoId, descricao AS item, medida, qtd FROM dbo.pedido_itens
+      .query(`SELECT produtoId, descricao AS item, medida, qtd, NULLIF(unitario, 0) AS valorUnitario FROM dbo.pedido_itens
               WHERE pedidoId = @id AND ISNULL(tipo, N'pneu') <> N'servico' ORDER BY criadoEm, id`);
     itens = vendaResult.recordset;
     itensDaVenda = itens.length > 0;

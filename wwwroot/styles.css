@@ -2348,3 +2348,28 @@ label.campo-inativo {
 .tabela-acoes {
   white-space: nowrap;
 }
+
+/* Preço por produto na carga/descarga */
+.carga-tabela th:nth-child(1) { width: 58px; }
+.carga-tabela th:nth-child(2) { width: auto; }
+.carga-tabela th:nth-child(3) { width: 58px; }
+.carga-tabela th:nth-child(4) { width: 62px; }
+.carga-tabela th:nth-child(5) { width: 96px; }
+.carga-tabela th:nth-child(6) { width: 92px; }
+.carga-tabela th:nth-child(7) { width: 34px; }
+
+.carga-item-medida {
+  display: block;
+  color: var(--faint);
+  font-size: 12px;
+}
+
+.carga-linha-total {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.carga-total-valor {
+  border-top: 0;
+  padding-top: 4px;
+}

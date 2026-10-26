@@ -59,7 +59,7 @@ const tables = {
   cargaItens: {
     table: 'carga_itens',
     readOnlyRoute: true,
-    columns: [G('cargaId'), G('produtoRef'), S('produtoId', 60), S('item', 200), S('medida', 60), I('qtd')]
+    columns: [G('cargaId'), G('produtoRef'), S('produtoId', 60), S('item', 200), S('medida', 60), I('qtd'), M('valorUnitario')]
   },
   pedidos: {
     table: 'pedidos',

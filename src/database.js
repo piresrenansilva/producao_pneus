@@ -271,7 +271,10 @@ async function executeMigrations(pool) {
     String.raw`IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_financeiro_lancamentos_condicao')
       ALTER TABLE dbo.financeiro_lancamentos ADD CONSTRAINT FK_financeiro_lancamentos_condicao
         FOREIGN KEY (condicaoPagamentoId) REFERENCES dbo.CondicoesPagamento (Codigo);`,
-    condicoesPagamentoMigration
+    condicoesPagamentoMigration,
+    // ---- Preço por produto na carga/descarga ----
+    String.raw`IF COL_LENGTH('dbo.carga_itens', 'valorUnitario') IS NULL
+      ALTER TABLE dbo.carga_itens ADD valorUnitario decimal(12, 2) NULL;`
   ];
   for (const [index, statement] of migrations.entries()) {
     await pool.request().query(statement);

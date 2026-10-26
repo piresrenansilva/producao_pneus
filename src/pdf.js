@@ -334,6 +334,10 @@ async function createCargaPdf(pool, id) {
   const referencia = String(carga.id || '').slice(0, 8).toUpperCase();
   const itens = carga.itens || [];
   const totalPecas = itens.reduce((sum, item) => sum + (Number(item.qtd) || 0), 0);
+  // Preços digitados no movimento: as colunas só aparecem se algum produto tiver preço.
+  const precoDe = (item) => (Number(item?.valorUnitario) > 0 ? Number(item.valorUnitario) : 0);
+  const comPreco = itens.some((item) => precoDe(item) > 0);
+  const valorTotal = itens.reduce((sum, item) => sum + (Number(item.qtd) || 0) * precoDe(item), 0);
 
   const buffer = await renderPdf({ Title: `${descarga ? 'Descarga' : 'Carga'} ${referencia}`, Author: 'Fábrica de Pneus' }, (doc) => {
     const left = 48;
@@ -369,14 +373,20 @@ async function createCargaPdf(pool, id) {
 
     // Tabela de produtos
     y += 6;
-    const col = { code: left, desc: left + 80, medida: right - 190, qty: right - 70 };
+    const col = comPreco
+      ? { code: left, desc: left + 70, medida: right - 310, medidaW: 90, qty: right - 215, qtyW: 45, unit: right - 160, total: right - 82 }
+      : { code: left, desc: left + 80, medida: right - 190, medidaW: 110, qty: right - 70, qtyW: 62 };
     const tableHeader = () => {
       doc.rect(left, y, contentWidth, 25).fill(darkGreen);
       doc.font('Helvetica-Bold').fontSize(8).fillColor('#FFFFFF')
         .text('CÓD.', col.code + 8, y + 8, { width: 70 })
         .text('PRODUTO', col.desc, y + 8, { width: col.medida - col.desc - 8 })
-        .text('MEDIDA', col.medida, y + 8, { width: 110 })
-        .text('QTD.', col.qty, y + 8, { width: 62, align: 'right' });
+        .text('MEDIDA', col.medida, y + 8, { width: col.medidaW })
+        .text('QTD.', col.qty, y + 8, { width: col.qtyW, align: 'right' });
+      if (comPreco) {
+        doc.text('UNITÁRIO', col.unit, y + 8, { width: 72, align: 'right' })
+          .text('TOTAL', col.total, y + 8, { width: 74, align: 'right' });
+      }
       y += 25;
     };
     tableHeader();
@@ -393,8 +403,12 @@ async function createCargaPdf(pool, id) {
         doc.font('Helvetica').fontSize(8).fillColor(ink)
           .text(safe(item.produtoId), col.code + 8, y + 9, { width: 70 })
           .text(nome, col.desc, y + 8, { width: col.medida - col.desc - 10 })
-          .text(safe(item.medida), col.medida, y + 9, { width: 110 })
-          .text(String(Number(item.qtd) || 0), col.qty, y + 9, { width: 62, align: 'right' });
+          .text(safe(item.medida), col.medida, y + 9, { width: col.medidaW })
+          .text(String(Number(item.qtd) || 0), col.qty, y + 9, { width: col.qtyW, align: 'right' });
+        if (comPreco && precoDe(item)) {
+          doc.text(money(precoDe(item)), col.unit, y + 9, { width: 72, align: 'right' })
+            .font('Helvetica-Bold').text(money(precoDe(item) * (Number(item.qtd) || 0)), col.total, y + 9, { width: 74, align: 'right' });
+        }
       }
       y += height;
     }
@@ -412,6 +426,13 @@ async function createCargaPdf(pool, id) {
     doc.rect(summaryX, y, 110, 34).fill('#111111');
     doc.font('Helvetica-Bold').fontSize(10).fillColor('#FFFFFF').text('TOTAL DE PEÇAS', summaryX + 8, y + 12, { width: 94, align: 'center' });
     doc.font('Helvetica-Bold').fontSize(14).fillColor('#111111').text(String(totalPecas), summaryX + 118, y + 9, { width: 104, align: 'right' });
+    if (comPreco) {
+      y += 40;
+      doc.rect(summaryX, y, 230, 34).fill(zebra);
+      doc.rect(summaryX, y, 110, 34).fill(darkGreen);
+      doc.font('Helvetica-Bold').fontSize(10).fillColor('#FFFFFF').text('VALOR TOTAL', summaryX + 8, y + 12, { width: 94, align: 'center' });
+      doc.font('Helvetica-Bold').fontSize(14).fillColor('#111111').text(money(valorTotal), summaryX + 118, y + 9, { width: 104, align: 'right' });
+    }
 
     // Assinaturas
     y += 100;
