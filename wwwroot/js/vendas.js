@@ -7,10 +7,38 @@ function condicaoPadraoVenda() {
   return escolhida ? String(escolhida.id) : "";
 }
 
+const TIPO_ENTIDADE_VENDEDOR = 4;
+
+function vendedoresDaVenda(vendedorAtualId = "") {
+  const vendedores = (db.clientes || [])
+    .filter((entidade) => Number(entidade.tipoEntidadeId) === TIPO_ENTIDADE_VENDEDOR
+      && (String(entidade.status || "").toLowerCase() !== "inativo" || sameId(entidade.id, vendedorAtualId)));
+  return vendedores.sort((a, b) => String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR"));
+}
+
+function vendedorPadraoDaVenda() {
+  const vendedores = vendedoresDaVenda();
+  return vendedores.find((entidade) => normalizarBuscaEntidade(entidade.nome) === "padrao")
+    // Compatibilidade para instalações que ainda possuam o cadastro automático anterior.
+    || vendedores.find((entidade) => normalizarBuscaEntidade(entidade.nome) === "vendedor padrao")
+    || vendedores[0]
+    || null;
+}
+
+function vendedorSelecionadoDaVenda() {
+  if (!vendaRascunho) return null;
+  const porId = (db.clientes || []).find((entidade) => sameId(entidade.id, vendaRascunho.vendedorId));
+  if (porId) return porId;
+  const nomeAnterior = normalizarBuscaEntidade(vendaRascunho.vendedor);
+  return vendedoresDaVenda().find((entidade) => normalizarBuscaEntidade(entidade.nome) === nomeAnterior) || null;
+}
+
 function iniciarPedido() {
   editingPedidoId = null;
+  const vendedorPadrao = vendedorPadraoDaVenda();
   vendaRascunho = {
-    clienteId: "", veiculoId: "", data: today(), condicaoPagamentoId: condicaoPadraoVenda(), vendedor: "", previsao: "",
+    clienteId: "", veiculoId: "", data: today(), condicaoPagamentoId: condicaoPadraoVenda(),
+    vendedorId: vendedorPadrao?.id || "", vendedor: vendedorPadrao?.nome || "", previsao: "",
     obs: "", box: "", agendamento: "", horario: "", status: "orçamento", descontoPercentual: 0, itens: []
   };
   etapaVenda = 1;
@@ -28,6 +56,9 @@ function editarOrcamento(pedido) {
     alert("O cliente deste orçamento não está mais cadastrado. Não é possível editá-lo.");
     return;
   }
+  const vendedorAtual = (db.clientes || []).find((entidade) => sameId(entidade.id, pedido.vendedorId))
+    || vendedoresDaVenda().find((entidade) => normalizarBuscaEntidade(entidade.nome) === normalizarBuscaEntidade(pedido.vendedor))
+    || vendedorPadraoDaVenda();
   const itens = pedido.itens.map((item) => {
     const tipo = item.tipo === "servico" ? "servico" : "pneu";
     const referencia = tipo === "servico" ? item.servicoRef : item.produtoRef;
@@ -57,7 +88,8 @@ function editarOrcamento(pedido) {
     veiculoId: db.veiculos.find((veiculo) => sameId(veiculo.id, pedido.veiculoId))?.id || "",
     data: pedido.data || today(),
     condicaoPagamentoId: pedido.condicaoPagamentoId ? String(pedido.condicaoPagamentoId) : condicaoPadraoVenda(),
-    vendedor: pedido.vendedor || "",
+    vendedorId: vendedorAtual?.id || "",
+    vendedor: vendedorAtual?.nome || pedido.vendedor || "",
     previsao: pedido.previsao || "",
     obs: pedido.obs || "",
     box: pedido.box || "",
@@ -344,6 +376,15 @@ function opcoesCondicaoVenda() {
     `<option value="${escapeHtml(c.id)}" ${sameId(c.id, vendaRascunho.condicaoPagamentoId) ? "selected" : ""}>${escapeHtml(c.Descricao)}${String(c.Status).toLowerCase() === "inativo" ? " (inativa)" : ""}</option>`).join("");
 }
 
+function opcoesVendedorVenda() {
+  const selecionado = vendedorSelecionadoDaVenda();
+  const vendedorSelecionadoId = selecionado?.id || vendaRascunho?.vendedorId;
+  const vendedores = vendedoresDaVenda(vendedorSelecionadoId);
+  if (!vendedores.length) return `<option value="">Nenhum vendedor cadastrado</option>`;
+  return vendedores.map((vendedor) =>
+    `<option value="${escapeHtml(vendedor.id)}" ${sameId(vendedor.id, vendedorSelecionadoId) ? "selected" : ""}>${escapeHtml(vendedor.nome)}${String(vendedor.status || "").toLowerCase() === "inativo" ? " (inativo)" : ""}</option>`).join("");
+}
+
 function dicaCondicaoVenda() {
   const condicao = condicaoDaVenda();
   if (!condicao) return condicoesAtivas().length ? "Selecione a forma de pagamento." : "Nenhuma forma de pagamento ativa. Cadastre na aba Formas de pagamento.";
@@ -371,6 +412,8 @@ function pagamentoEtapaMarkup() {
       <div class="venda-total"><span>Total final</span><strong id="totalFinal">${money(Math.max(0, subtotal - desconto))}</strong></div>
     </div>
     <div class="grid venda-pagamento">
+      <label>Vendedor<select id="vendedorVenda">${opcoesVendedorVenda()}</select>
+        <small class="hint">Entidades cadastradas com tipo Vendedor.</small></label>
       <label>Forma de pagamento<select id="pagamentoVenda">${opcoesCondicaoVenda()}</select>
         <small class="hint" id="pagamentoVendaDica">${escapeHtml(dicaCondicaoVenda())}</small></label>
       ${editingPedidoId
@@ -538,6 +581,12 @@ function renderVenda() {
       updateTotal(v);
     });
   }, 30);
+  const vendedor = document.getElementById("vendedorVenda");
+  if (vendedor) vendedor.onchange = () => {
+    const entidade = (db.clientes || []).find((item) => sameId(item.id, vendedor.value));
+    vendaRascunho.vendedorId = entidade?.id || "";
+    vendaRascunho.vendedor = entidade?.nome || "";
+  };
   const pagamento = document.getElementById("pagamentoVenda");
   if (pagamento) pagamento.onchange = () => {
     vendaRascunho.condicaoPagamentoId = pagamento.value;
@@ -695,6 +744,7 @@ function renderPedido() {
       <div><dt>Veículo</dt><dd>${escapeHtml(db.veiculos.find((v) => sameId(v.id, pedido.veiculoId))?.modelo || "—")}</dd></div>
       <div><dt>Data</dt><dd>${br(pedido.data)}</dd></div>
       <div><dt>Pagamento</dt><dd>${escapeHtml(nomeCondicao(pedido) || "—")}</dd></div>
+      <div><dt>Vendedor</dt><dd>${escapeHtml(pedido.vendedor || "—")}</dd></div>
       <div><dt>Agendamento</dt><dd>${br(pedido.agendamento)} ${escapeHtml(pedido.horario)}</dd></div>
       <div><dt>Box</dt><dd>${escapeHtml(pedido.box || "—")}</dd></div>
     </dl>

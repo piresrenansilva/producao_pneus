@@ -10,8 +10,20 @@ const RO = (name, type = 's', size = 200) => ({ name, type, size, readOnly: true
 const tables = {
   clientes: {
     table: 'clientes',
-    columns: [S('nome', 200), S('tipo', 30), S('documento', 30), S('telefone', 30), S('email', 150), M('limiteCredito'), S('cep', 12), S('endereco', 200), S('numero', 20), S('complemento', 100), S('bairro', 100), S('cidade', 100), S('estado', 2), S('status', 30), S('obs', 500)],
+    // O tipo vem do cadastro tiposEntidades. O texto clientes.tipo é legado e
+    // permanece como fallback para registros anteriores à migração.
+    joins: 'LEFT JOIN dbo.[tiposEntidades] te ON te.[id] = t.[tipoEntidadeId]',
+    computed: { tipo: 'COALESCE(te.[nome], t.[tipo])' },
+    columns: [S('nome', 200), I('tipoEntidadeId'), S('documento', 30), S('telefone', 30), S('email', 150), M('limiteCredito'), S('cep', 12), S('endereco', 200), S('numero', 20), S('complemento', 100), S('bairro', 100), S('cidade', 100), S('estado', 2), S('status', 30), S('obs', 500)],
     extras: ['codigo']
+  },
+  tiposEntidades: {
+    table: 'tiposEntidades',
+    // Por enquanto este cadastro é mantido diretamente no SQL Server; a tela
+    // de entidades apenas consome os tipos ativos disponíveis.
+    readOnlyRoute: true,
+    orderBy: 't.[nome]',
+    columns: [S('nome', 80), S('status', 30)]
   },
   veiculos: {
     table: 'veiculos',
@@ -63,7 +75,7 @@ const tables = {
   },
   pedidos: {
     table: 'pedidos',
-    columns: [RO('numero'), T('data'), S('cliente', 150), S('pagamento', 100), I('condicaoPagamentoId'), S('status', 30), S('vendedor', 100), T('previsao'), S('obs', 500), G('clienteId'), G('veiculoId'), M('descontoPercentual'), M('descontoValor'), S('box', 100), T('agendamento'), S('horario', 10)]
+    columns: [RO('numero'), T('data'), S('cliente', 150), S('pagamento', 100), I('condicaoPagamentoId'), S('status', 30), S('vendedor', 100), G('vendedorId'), T('previsao'), S('obs', 500), G('clienteId'), G('veiculoId'), M('descontoPercentual'), M('descontoValor'), S('box', 100), T('agendamento'), S('horario', 10)]
   },
   itens: {
     table: 'pedido_itens',

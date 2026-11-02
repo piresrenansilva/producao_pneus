@@ -21,7 +21,7 @@ const totalPecasPedido = (pedido) => (pedido?.itens || []).reduce((soma, item) =
 }, 0);
 const overdue = (date, status) => date && !["pago", "paga", "cancelado", "cancelada"].includes(status) && date < today();
 
-let db = { clientes: [], veiculos: [], servicos: [], produtos: [], carcacas: [], carcacaOrdens: [], estoque: [], producao: [], cargas: [], pedidos: [], lancamentos: [], financeiroCategoria: [], condicoesPagamento: [] };
+let db = { clientes: [], tiposEntidades: [], veiculos: [], servicos: [], produtos: [], carcacas: [], carcacaOrdens: [], estoque: [], producao: [], cargas: [], pedidos: [], lancamentos: [], financeiroCategoria: [], condicoesPagamento: [] };
 let page = "painel";
 let pedidoId = null;
 let editingPedidoId = null;
@@ -185,7 +185,10 @@ async function api(url, options = {}) {
 
 async function load() {
   db = await api("/api/dados");
-  for (const key of ["clientes", "veiculos", "servicos", "produtos", "carcacas", "carcacaOrdens", "estoque", "producao", "cargas", "pedidos", "lancamentos", "financeiroCategoria", "condicoesPagamento"])
+  // Vendas ou lançamentos podem ter mudado; o próximo acesso ao relatório
+  // consulta novamente a procedure, sem reaproveitar totais antigos.
+  if (typeof invalidarRelatorioVendas === "function") invalidarRelatorioVendas();
+  for (const key of ["clientes", "tiposEntidades", "veiculos", "servicos", "produtos", "carcacas", "carcacaOrdens", "estoque", "producao", "cargas", "pedidos", "lancamentos", "financeiroCategoria", "condicoesPagamento"])
     if (!Array.isArray(db[key])) db[key] = [];
   db.pedidos = db.pedidos.map((p) => ({ ...p, itens: p.itens || [] }));
   db.carcacaOrdens = db.carcacaOrdens.map((o) => ({ ...o, itens: o.itens || [] }));
@@ -217,7 +220,7 @@ function escapeHtml(value) {
 
 const NAV = [
   ["painel", "Painel"], ["clientes", "Entidades"], ["veiculos", "Veículos"], ["produtos", "Produtos"], ["servicos", "Serviços"], ["carcacas", "Carcaças"], ["estoque", "Estoque"], ["producao", "Produção"],
-  ["vendas", "Vendas"], ["cargas", "Carga e descarga"], ["financeiro", "Financeiro"], ["condicoesPagamento", "Formas de pagamento"]
+  ["vendas", "Vendas"], ["cargas", "Carga e descarga"], ["financeiro", "Financeiro"], ["relatorios", "Relatórios"], ["condicoesPagamento", "Formas de pagamento"]
 ];
 const TITLES = {
   painel: ["Painel", "Todos os indicadores."],
@@ -231,6 +234,7 @@ const TITLES = {
   cargas: ["Carga e descarga", "Entrada e saída de pátio."],
   vendas: ["Vendas", "Monte pedidos com entidades cadastradas e produtos do catálogo."],
   financeiro: ["Financeiro", "Contas a receber e a pagar, boletos de clientes e da empresa, despesas e caixa."],
+  relatorios: ["Relatórios", "Indicadores de vendas calculados diretamente no SQL Server."],
   condicoesPagamento: ["Formas de pagamento", "Condições usadas nas vendas e no Financeiro. Ao faturar a venda, o lançamento entra no Financeiro: à vista vence no dia; a prazo, uma parcela por vencimento."]
 };
 

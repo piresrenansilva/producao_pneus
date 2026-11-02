@@ -6,7 +6,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && node --check src/database.js && node --check src/auth.js && node --check src/sale-prices.js && node --check src/operations.js && node --check src/pdf.js && node --check wwwroot/js/theme.js && node --check wwwroot/js/utils.js && node --check wwwroot/js/forms.js && node --check wwwroot/js/vendas.js && node --check wwwroot/js/app.js",
+    "check": "node --check server.js && node --check src/database.js && node --check src/auth.js && node --check src/definitions.js && node --check src/reports.js && node --check src/sale-prices.js && node --check src/operations.js && node --check src/pdf.js && node --check wwwroot/js/theme.js && node --check wwwroot/js/utils.js && node --check wwwroot/js/forms.js && node --check wwwroot/js/relatorios.js && node --check wwwroot/js/vendas.js && node --check wwwroot/js/app.js",
     "test": "node --test"
   },
   "engines": {

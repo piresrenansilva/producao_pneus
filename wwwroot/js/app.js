@@ -44,6 +44,10 @@ function render() {
     finally { b.disabled = false; b.textContent = textoOriginal; }
   });
   if (page === "financeiro") ligarFinanceiro(view);
+  if (page === "relatorios") {
+    ligarRelatorios(view);
+    iniciarRelatorioVendas();
+  }
   view.querySelectorAll("[data-venda-filtro]").forEach((b) => b.onclick = () => { vendaFiltro = b.dataset.vendaFiltro; vendaPagina = 1; render(); });
   view.querySelectorAll("[data-venda-pagina]").forEach((b) => b.onclick = () => {
     vendaPagina = Number(b.dataset.vendaPagina) || 1;
@@ -300,6 +304,7 @@ const views = {
       <div class="fin-rodape"><span>${lista.length} lançamento(s)</span><span>A receber: <strong>${money(listaReceber)}</strong></span><span>A pagar: <strong>${money(listaPagar)}</strong></span><span>Diferença: <strong>${money(listaReceber - listaPagar)}</strong></span></div>
     </section>`;
   },
+  relatorios() { return viewRelatorios(); },
   condicoesPagamento() {
     const condicoes = db.condicoesPagamento || [];
     const busca = normalizarBuscaEntidade(query.trim());

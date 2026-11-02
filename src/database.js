@@ -423,6 +423,20 @@ BEGIN
   COMMIT TRANSACTION;
 END`;
 
+async function applySqlBatches(pool, relativePath, label) {
+  const filePath = path.join(__dirname, '..', relativePath);
+  const source = await fs.readFile(filePath, 'utf8');
+  const batches = source.split(/^\s*GO\s*$/gim).filter((batch) => batch.trim());
+  for (let i = 0; i < batches.length; i += 1) {
+    try {
+      await pool.request().query(batches[i]);
+    } catch (error) {
+      error.message = `Falha ao aplicar o lote ${i + 1}/${batches.length} de ${label}: ${error.message}`;
+      throw error;
+    }
+  }
+}
+
 async function warnDuplicateProductCodes(pool) {
   const result = await pool.request().query(`
     SELECT produtoId, COUNT(*) AS quantidade
@@ -466,6 +480,11 @@ async function initializeDatabase() {
       }
     }
     await executeMigrations(pool);
+    // Cadastros auxiliares e procedures ficam em arquivos SQL versionados no Git.
+    // Os scripts são idempotentes e podem ser reaplicados a cada inicialização.
+    await applySqlBatches(pool, path.join('sql', 'tipos-entidades.sql'), 'sql/tipos-entidades.sql');
+    await applySqlBatches(pool, path.join('sql', 'vendedores.sql'), 'sql/vendedores.sql');
+    await applySqlBatches(pool, path.join('sql', 'relatorios.sql'), 'sql/relatorios.sql');
     await warnDuplicateProductCodes(pool);
     return pool;
   } catch (error) {

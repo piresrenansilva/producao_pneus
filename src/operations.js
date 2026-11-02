@@ -198,6 +198,60 @@ async function validateProdutoCategoria(transaction, value, currentProductId = n
   return categoriaId;
 }
 
+// O tipo da entidade precisa existir no cadastro central e estar ativo.
+const VENDEDOR_TIPO_ENTIDADE_ID = 4;
+
+async function validateTipoEntidade(transaction, value, currentEntityId = null) {
+  const tipoId = parseNumber(value, 'Tipo da entidade', { integer: true });
+  if (tipoId <= 0) throw badRequest('Selecione o tipo da entidade.');
+
+  const result = await new sql.Request(transaction)
+    .input('id', sql.Int, tipoId)
+    .query('SELECT status FROM dbo.tiposEntidades WHERE id = @id');
+  const tipo = result.recordset[0];
+  if (!tipo) throw conflict('O tipo de entidade selecionado não existe.');
+
+  if (String(tipo.status || '').toLowerCase() === 'inativo') {
+    if (currentEntityId) {
+      const current = await new sql.Request(transaction)
+        .input('id', sql.UniqueIdentifier, currentEntityId)
+        .query('SELECT tipoEntidadeId FROM dbo.clientes WHERE id = @id');
+      if (Number(current.recordset[0]?.tipoEntidadeId) === tipoId) return tipoId;
+    }
+    throw conflict('O tipo de entidade selecionado está inativo.');
+  }
+  return tipoId;
+}
+
+// A venda só pode ser vinculada a uma entidade do tipo Vendedor (id 4).
+// Sem seleção explícita, usa a entidade Padrão garantida pela migração — ou o
+// primeiro vendedor ativo, apenas como contingência.
+async function loadVendedorDaVenda(transaction, vendedorId = null) {
+  const request = new sql.Request(transaction)
+    .input('tipoId', sql.Int, VENDEDOR_TIPO_ENTIDADE_ID);
+  let result;
+  if (vendedorId) {
+    result = await request
+      .input('id', sql.UniqueIdentifier, vendedorId)
+      .query(`SELECT id, LEFT(nome, 100) AS nome
+              FROM dbo.clientes
+              WHERE id = @id AND tipoEntidadeId = @tipoId AND status <> N'Inativo'`);
+    if (!result.recordset[0]) {
+      throw conflict('O vendedor selecionado não existe, não é do tipo Vendedor ou está inativo.');
+    }
+  } else {
+    result = await request.query(`SELECT TOP (1) id, LEFT(nome, 100) AS nome
+      FROM dbo.clientes
+      WHERE tipoEntidadeId = @tipoId AND status <> N'Inativo'
+      ORDER BY CASE WHEN nome COLLATE Latin1_General_CI_AI = N'Padrão' COLLATE Latin1_General_CI_AI THEN 0 ELSE 1 END,
+               criadoEm, id`);
+    if (!result.recordset[0]) {
+      throw conflict('Nenhum vendedor ativo foi encontrado. Cadastre uma entidade com tipo de id 4 (Vendedor).');
+    }
+  }
+  return result.recordset[0];
+}
+
 // Código do produto: obrigatório e sem repetição (ignora espaços nas pontas e
 // maiúsculas/minúsculas, conforme a collation do banco).
 async function validateProdutoCodigo(transaction, value, currentProductId = null) {
@@ -561,6 +615,12 @@ async function createRow(pool, route, body) {
     if (route === 'cargas' && Object.prototype.hasOwnProperty.call(body, 'pedidoId')) {
       await validateCargaPedido(transaction, body.pedidoId);
     }
+    if (route === 'clientes') {
+      body.tipoEntidadeId = await validateTipoEntidade(transaction, body.tipoEntidadeId);
+      if (!fields.some((field) => field.name === 'tipoEntidadeId')) {
+        fields.push(definition.columns.find((column) => column.name === 'tipoEntidadeId'));
+      }
+    }
     if (route === 'produtos') {
       body.produtoId = await validateProdutoCodigo(transaction, body.produtoId);
       if (!fields.some((field) => field.name === 'produtoId')) {
@@ -624,7 +684,7 @@ async function createOrUpdateSale(pool, body, existingOrderId = null) {
   const forecast = parseDate(body.previsao, 'Previsão');
   const appointment = parseDate(body.agendamento, 'Agendamento');
   const status = existingOrderId ? 'orçamento' : getText(body, 'status');
-  const seller = getText(body, 'vendedor');
+  const requestedSellerId = parseGuid(body.vendedorId, 'Vendedor');
   const notes = getText(body, 'obs');
   const box = getText(body, 'box');
   const time = getText(body, 'horario');
@@ -641,6 +701,7 @@ async function createOrUpdateSale(pool, body, existingOrderId = null) {
   const transaction = new sql.Transaction(pool);
   await transaction.begin(sql.ISOLATION_LEVEL.READ_COMMITTED);
   try {
+    const seller = await loadVendedorDaVenda(transaction, requestedSellerId);
     let currentCondicao = null;
     if (existingOrderId) {
       const existing = await new sql.Request(transaction)
@@ -724,7 +785,8 @@ async function createOrUpdateSale(pool, body, existingOrderId = null) {
         .input('cliente', sql.NVarChar(150), clientName)
         .input('pagamento', sql.NVarChar(100), payment)
         .input('condicaoPagamentoId', sql.Int, condicao.Codigo)
-        .input('vendedor', sql.NVarChar(100), seller)
+        .input('vendedor', sql.NVarChar(100), seller.nome)
+        .input('vendedorId', sql.UniqueIdentifier, seller.id)
         .input('previsao', sql.Date, forecast)
         .input('obs', sql.NVarChar(500), notes)
         .input('clienteId', sql.UniqueIdentifier, clientId)
@@ -736,7 +798,7 @@ async function createOrUpdateSale(pool, body, existingOrderId = null) {
         .input('horario', sql.NVarChar(10), time)
         .query(`UPDATE dbo.pedidos
                 SET data=@data, cliente=@cliente, pagamento=@pagamento, condicaoPagamentoId=@condicaoPagamentoId,
-                    vendedor=@vendedor, previsao=@previsao,
+                    vendedor=@vendedor, vendedorId=@vendedorId, previsao=@previsao,
                     obs=@obs, clienteId=@clienteId, veiculoId=@veiculoId, descontoPercentual=@percentual,
                     descontoValor=@desconto, box=@box, agendamento=@agendamento, horario=@horario
                 OUTPUT inserted.id, inserted.numero
@@ -755,7 +817,8 @@ async function createOrUpdateSale(pool, body, existingOrderId = null) {
         .input('pagamento', sql.NVarChar(100), payment)
         .input('condicaoPagamentoId', sql.Int, condicao.Codigo)
         .input('status', sql.NVarChar(30), status)
-        .input('vendedor', sql.NVarChar(100), seller)
+        .input('vendedor', sql.NVarChar(100), seller.nome)
+        .input('vendedorId', sql.UniqueIdentifier, seller.id)
         .input('previsao', sql.Date, forecast)
         .input('obs', sql.NVarChar(500), notes)
         .input('clienteId', sql.UniqueIdentifier, clientId)
@@ -766,11 +829,11 @@ async function createOrUpdateSale(pool, body, existingOrderId = null) {
         .input('agendamento', sql.Date, appointment)
         .input('horario', sql.NVarChar(10), time)
         .query(`INSERT INTO dbo.pedidos
-                  (numero, data, cliente, pagamento, condicaoPagamentoId, status, vendedor, previsao, obs, clienteId, veiculoId,
+                  (numero, data, cliente, pagamento, condicaoPagamentoId, status, vendedor, vendedorId, previsao, obs, clienteId, veiculoId,
                    descontoPercentual, descontoValor, box, agendamento, horario)
                 OUTPUT inserted.id, inserted.numero
                 VALUES ('PED-' + FORMAT(NEXT VALUE FOR dbo.seq_pedido, '0000'), @data, @cliente, @pagamento, @condicaoPagamentoId,
-                        @status, @vendedor, @previsao, @obs, @clienteId, @veiculoId,
+                        @status, @vendedor, @vendedorId, @previsao, @obs, @clienteId, @veiculoId,
                         @percentual, @desconto, @box, @agendamento, @horario)`);
       orderId = inserted.recordset[0].id;
       orderNumber = inserted.recordset[0].numero;
@@ -831,6 +894,9 @@ async function updateRow(pool, route, id, body) {
     }
     if (route === 'cargas') {
       throw conflict('Movimentos de carga e descarga devem ser salvos pelo fluxo próprio, com os produtos.');
+    }
+    if (route === 'clientes' && Object.prototype.hasOwnProperty.call(body, 'tipoEntidadeId')) {
+      body.tipoEntidadeId = await validateTipoEntidade(transaction, body.tipoEntidadeId, validId);
     }
     if (route === 'produtos' && Object.prototype.hasOwnProperty.call(body, 'produtoId')) {
       body.produtoId = await validateProdutoCodigo(transaction, body.produtoId, validId);

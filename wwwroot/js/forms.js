@@ -26,7 +26,7 @@ function field(name, label, type, extra = "") {
 const FORMS = {
   clientes: () => [
     field("nome", "Nome / Razão social", "text", "required"),
-    field("tipo", "Tipo", "select", "required"),
+    field("tipoEntidadeId", "Tipo", "select", "required"),
     `<label>CPF / CNPJ<div style="display:flex;gap:6px;align-items:center"><input name="f_doc" data-realname="documento" type="text" autocomplete="new-password" style="flex:1" data-lpignore="true" /><button type="button" class="btn small" id="btnBuscarCnpj">Buscar</button></div></label>`,
     field("telefone", "Telefone", "tel", "placeholder=\"(XX) 9XXXX-XXXX\" maxlength=\"15\""),
     field("email", "E-mail", "email"),
@@ -164,7 +164,7 @@ const FORMS = {
 };
 
 const SELECTS = {
-  clientes: { tipo: ["Cliente", "Fornecedor", "Funcionário"], status: ["Ativo", "Inativo"] },
+  clientes: { status: ["Ativo", "Inativo"] },
   veiculos: { status: ["Ativo", "Inativo"] },
   servicos: { status: ["Ativo", "Inativo"] },
   produtos: { status: ["Ativo", "Inativo"] },
@@ -200,6 +200,7 @@ function fillSelects(root, kind, row) {
     const isFuncionarioCarga = kind === "cargas" && sel.name === "funcionario";
     const isVendaCarga = kind === "cargas" && sel.name === "pedidoId";
     const isCategoriaProduto = kind === "produtos" && sel.name === "categoriaId";
+    const isTipoEntidade = kind === "clientes" && sel.name === "tipoEntidadeId";
     let choices = options;
     if (isCliente) {
       choices = db.clientes
@@ -234,6 +235,11 @@ function fillSelects(root, kind, row) {
       choices = (db.produtoCategoria || [])
         .filter((categoria) => String(categoria.status || "").toLowerCase() !== "inativo" || sameId(categoria.id, row?.categoriaId))
         .map((categoria) => [categoria.id, categoria.nome]);
+    } else if (isTipoEntidade) {
+      // O tipo da entidade vem da tabela tiposEntidades (ativos + o atual, se inativo).
+      choices = (db.tiposEntidades || [])
+        .filter((tipo) => String(tipo.status || "").toLowerCase() !== "inativo" || sameId(tipo.id, row?.tipoEntidadeId))
+        .map((tipo) => [tipo.id, tipo.nome]);
     } else if (isVendaCarga) {
       choices = vendasDisponiveisCarga(row).map((pedido) => {
         const cliente = pedido.cliente || db.clientes.find((item) => sameId(item.id, pedido.clienteId))?.nome || "Cliente não informado";
@@ -241,18 +247,20 @@ function fillSelects(root, kind, row) {
         return [pedido.id, `${numero} · ${cliente} · ${totalPecasPedido(pedido)} peças`];
       });
     }
-    const dinamico = isCliente || isOperador || isMedidaCarcaca || isFuncionarioCarga || isVendaCarga || isCategoriaProduto;
+    const dinamico = isCliente || isOperador || isMedidaCarcaca || isFuncionarioCarga || isVendaCarga || isCategoriaProduto || isTipoEntidade;
     const placeholder = isMedidaCarcaca && choices.length === 0
       ? "Cadastre uma carcaça com medida"
       : isFuncionarioCarga && choices.length === 0
         ? "Cadastre um funcionário"
-        : isVendaCarga && choices.length === 0
-          ? "Nenhuma venda faturada ou paga"
-          : isVendaCarga
-            ? "Sem venda vinculada (opcional)"
-            : isCategoriaProduto && row && !row.categoriaId && row.categoria
-              ? `Selecione... (categoria antiga: ${row.categoria})`
-              : "Selecione...";
+        : isTipoEntidade && choices.length === 0
+          ? "Cadastre um tipo de entidade"
+          : isVendaCarga && choices.length === 0
+            ? "Nenhuma venda faturada ou paga"
+            : isVendaCarga
+              ? "Sem venda vinculada (opcional)"
+              : isCategoriaProduto && row && !row.categoriaId && row.categoria
+                ? `Selecione... (categoria antiga: ${row.categoria})`
+                : "Selecione...";
     sel.innerHTML = (dinamico ? `<option value="">${escapeHtml(placeholder)}</option>` : "") + choices.map((o) => Array.isArray(o)
       ? `<option value="${escapeHtml(o[0])}">${escapeHtml(o[1])}</option>`
       : `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join("");
@@ -473,11 +481,6 @@ function openForm(kind, row) {
       const el = getField(form, k);
       if (el) el.value = v ?? "";
     });
-    // Garante que o select de tipo receba o valor correto
-    if (kind === "clientes" && row.tipo) {
-      const tipoSel = form.querySelector('select[name="tipo"]');
-      if (tipoSel) tipoSel.value = row.tipo;
-    }
     // Em registros vinculados, usa a descrição atual do cadastro do produto
     // quando o texto legado da tabela de estoque estiver vazio.
     if (kind === "estoque") {

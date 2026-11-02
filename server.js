@@ -24,6 +24,7 @@ const {
   parseGuid
 } = require('./src/operations');
 const { createOrderPdf, createCarcacaOrdemPdf, createCargaPdf } = require('./src/pdf');
+const { getSalesReport } = require('./src/reports');
 
 if (!process.env.JWT_KEY) {
   if (process.env.NODE_ENV === 'production') {
@@ -137,6 +138,12 @@ app.use('/api', requireAuthentication);
 
 app.get('/api/dados', asyncRoute(async (req, res) => {
   res.json(await getAllData(pool));
+}));
+
+// Relatório calculado pela procedure dbo.usp_RelatorioVendas. A tela nunca acessa
+// o banco diretamente; o período é validado antes de ser enviado ao SQL Server.
+app.get('/api/relatorios/vendas', asyncRoute(async (req, res) => {
+  res.json(await getSalesReport(pool, req.query));
 }));
 
 app.get('/api/consulta/cnpj/:cnpj', asyncRoute(async (req, res) => {

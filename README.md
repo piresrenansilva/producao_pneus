@@ -72,6 +72,44 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"
 - Em **Carga e descarga**, placa, item e quantidade saíram do formulário. O motorista é digitado; o funcionário pode ser selecionado entre as entidades cadastradas como funcionário, e há campo para transportadora. A venda vinculada é opcional: é possível digitar três ou mais números do pedido e escolher uma sugestão entre as vendas faturadas ou pagas; a tela então mostra o cliente e o total de pneus. As colunas antigas permanecem no banco para preservar o histórico.
 - Na primeira inicialização após a atualização, uma migração adiciona `valorUnitario` às carcaças e os novos campos de vínculo da carga sem apagar nem recriar o banco. Registros antigos recebem `0,00` até que o custo de entrada seja informado.
 
+## Relatórios de vendas
+
+A aba **Relatórios** consulta a procedure SQL Server `dbo.usp_RelatorioVendas`, criada/atualizada automaticamente na inicialização pelo arquivo versionado `sql/relatorios.sql`.
+
+- O filtro permite período e vendedor; os atalhos incluem hoje, mês atual e mês anterior. A lista de vendedores vem das entidades cujo `tipoEntidadeId` é `4`.
+- O relatório considera somente pedidos com status **faturado** ou **pago** e usa a data do pedido.
+- São exibidos faturamento bruto, descontos, faturamento líquido, ticket médio, pneus, serviços, totais diários, vendedor e condição de pagamento.
+- O desconto é aplicado uma vez por pedido, mesmo quando ele tiver diversos itens.
+- O relatório é de **faturamento**. Recebimentos de caixa devem usar uma procedure/relatório próprio baseado em `financeiro_lancamentos.pagamento`, pois uma venda a prazo pode ser recebida em outro período.
+
+Para consultar diretamente no SQL Server:
+
+```sql
+EXEC dbo.usp_RelatorioVendas
+  @DataInicial = '2026-10-01',
+  @DataFinal = '2026-10-31',
+  @VendedorId = NULL;
+```
+
+## Tipos de entidades
+
+O campo **Tipo** do cadastro de entidades passa a ser alimentado pela tabela SQL Server `dbo.tiposEntidades`.
+
+- A instalação cria os tipos iniciais **Cliente**, **Fornecedor** e **Funcionário**.
+- Tipos já gravados em entidades antigas são importados automaticamente para a nova tabela e vinculados sem apagar o texto antigo.
+- Somente tipos com status **Ativo** aparecem ao cadastrar uma nova entidade; tipos inativos permanecem visíveis apenas ao editar uma entidade que já os utiliza.
+- Para adicionar um novo tipo, cadastre-o em `dbo.tiposEntidades` com os campos `nome` e `status`. O sistema carregará a nova opção no próximo acesso/recarregamento dos dados.
+- O tipo chamado **Funcionário** continua sendo usado nos seletores de funcionário da carga/descarga e produção.
+
+## Vendedores nas vendas
+
+O tipo de entidade de id **4** é tratado como **Vendedor**.
+
+- A etapa de pagamento da venda permite selecionar apenas entidades ativas com `tipoEntidadeId = 4`.
+- A venda armazena o identificador da entidade em `pedidos.vendedorId` e mantém o nome em `pedidos.vendedor` para preservar o histórico/PDF.
+- A inicialização garante a entidade ativa **Padrão** com tipo `4`, criando-a quando não existir ou reativando-a quando estiver inativa. Ela é o vendedor automático das novas vendas e das vendas antigas sem responsável.
+- O filtro de vendedor em **Relatórios** usa os mesmos cadastros de entidades, sem depender de nomes digitados nos pedidos.
+
 ## Observações
 
 - Esta versão continua usando SQL Server; não é um site estático. Node.js faz o papel do servidor local.
