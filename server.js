@@ -2,9 +2,41 @@ require('dotenv').config();
 
 const crypto = require('node:crypto');
 const express = require('express');
+const fs = require('node:fs');
 const path = require('node:path');
-const { sql, initializeDatabase } = require('./src/database');
+const os = require('node:os');
+const { spawn } = require('node:child_process');
+const {
+  DEFAULT_PORT,
+  APP_VERSION,
+  applyLegacyPortMigration,
+  resolvePort,
+  listenAddresses,
+  isLoopbackOnly,
+  displayUrl,
+  probeUrl,
+  openBrowserEnabled
+} = require('./src/config');
+applyLegacyPortMigration(); // .env antigo com PORT=5080 passa a valer 5090
 const { tables } = require('./src/definitions');
+
+// O driver do SQL Server (módulo nativo no Windows) só é carregado no primeiro
+// uso. Assim a interface e o servidor HTTP sobem imediatamente.
+// IMPORTANTE: src/database.js NÃO é modificado por esta atualização — quem tem
+// alterações locais nele continua com o arquivo intacto.
+let databaseModule = null;
+function loadDatabase() {
+  if (!databaseModule) databaseModule = require('./src/database');
+  return databaseModule;
+}
+const sql = new Proxy({}, { get: (_target, property) => loadDatabase().sql[property] });
+
+let bootDatabaseModule = null;
+function loadBootDatabase() {
+  if (!bootDatabaseModule) bootDatabaseModule = require('./src/boot-database');
+  return bootDatabaseModule;
+}
+
 const { HttpError, badRequest, conflict, notFound } = require('./src/errors');
 const {
   hashPassword,
@@ -38,14 +70,108 @@ if (Buffer.byteLength(process.env.JWT_KEY, 'utf8') < 32) {
 }
 
 const app = express();
-const host = process.env.HOST || '127.0.0.1';
-const port = Number(process.env.PORT || 5080);
+const port = resolvePort();
+const addresses = listenAddresses();
+const url = displayUrl(port);
+const probe = probeUrl(port, addresses);
 let pool = null;
-let httpServer = null;
+const httpServers = [];
+const bootStartedAt = Date.now();
+let dbStage = 'Aguardando o banco de dados';
+let dbError = null;
+let dbInit = null;
+let lastFailureAt = 0;
+let browserOpened = false;
+let announced = false;
+
+function markStage(message) {
+  dbStage = message;
+  console.log(`[boot] ${message} (+${((Date.now() - bootStartedAt) / 1000).toFixed(1)}s)`);
+}
+
+// Preparação do banco em SEGUNDO PLANO: o HTTP já está de pé, a interface abre
+// na hora e as chamadas /api esperam (ou tentam de novo) até o pool existir.
+function prepareDatabase() {
+  if (pool) return Promise.resolve(pool);
+  if (dbError && Date.now() - lastFailureAt < 5000) return Promise.reject(dbError);
+  if (!dbInit) {
+    dbError = null;
+    dbInit = loadBootDatabase().initializeDatabaseFast(markStage)
+      .then((readyPool) => {
+        pool = readyPool;
+        markStage('Banco pronto — sistema liberado.');
+        return pool;
+      })
+      .catch((error) => {
+        dbError = error;
+        lastFailureAt = Date.now();
+        dbInit = null;
+        markStage(`Falha ao preparar o banco: ${error.message}`);
+        console.error('Não foi possível preparar o banco de dados.');
+        console.error(error.message);
+        if (error.number) console.error(`Código SQL Server: ${error.number}`);
+        throw error;
+      });
+  }
+  return dbInit;
+}
 
 app.disable('x-powered-by');
 app.use(express.json({ limit: '1mb' }));
-app.use(express.static(path.join(__dirname, 'wwwroot'), { etag: true, maxAge: '1h' }));
+
+// Injeta a tela de boot no HTML sem precisar editar o wwwroot/index.html
+// (evita conflito com versões locais desse arquivo). O HTML é sempre
+// revalidado, então atualizações aparecem sem Ctrl+F5.
+let indexHtmlCache = null;
+app.get(['/', '/index.html'], (req, res, next) => {
+  try {
+    if (!indexHtmlCache || process.env.NODE_ENV === 'development') {
+      const original = fs.readFileSync(path.join(__dirname, 'wwwroot', 'index.html'), 'utf8');
+      const injetado = '  <script src="/js/boot.js?v=20261102-boot5090"></script>\n';
+      indexHtmlCache = /<\/body>/i.test(original)
+        ? original.replace(/<\/body>/i, `${injetado}</body>`)
+        : original + injetado;
+    }
+    res.set('Cache-Control', 'no-cache');
+    res.type('html').send(indexHtmlCache);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.use(express.static(path.join(__dirname, 'wwwroot'), {
+  etag: true,
+  maxAge: '1h',
+  setHeaders(res, filePath) {
+    // HTML/JS/CSS são sempre revalidados: depois de atualizar os arquivos não é
+    // mais obrigatório dar Ctrl+F5 para sair da versão antiga em cache.
+    if (/\.(html?|js|css)$/i.test(filePath)) res.setHeader('Cache-Control', 'no-cache');
+  }
+}));
+
+app.get('/api/status', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({
+    pronto: Boolean(pool),
+    etapa: dbStage,
+    erro: dbError ? (dbError.message || String(dbError)) : null,
+    versao: APP_VERSION,
+    url
+  });
+  // A tela de boot faz polling: se o SQL Server demorou a subir, tentamos de novo.
+  if (!pool && dbError && Date.now() - lastFailureAt >= 5000) prepareDatabase().catch(() => {});
+});
+
+app.use('/api', (req, res, next) => {
+  if (pool) return next();
+  prepareDatabase().then(
+    () => next(),
+    (error) => res.status(503).json({
+      detail: `Não foi possível acessar o SQL Server: ${error.message || dbStage}. Confira o serviço e a configuração no .env; o sistema tenta novamente em instantes.`,
+      etapa: dbStage
+    })
+  );
+});
 
 const asyncRoute = (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 
@@ -272,34 +398,119 @@ app.use((error, req, res, next) => {
   return res.status(500).json({ detail: 'Erro interno no servidor.' });
 });
 
-async function start() {
+function openBrowser(target = url) {
+  if (browserOpened || !openBrowserEnabled()) return;
+  browserOpened = true;
+  let command;
+  let args;
+  if (process.platform === 'win32') {
+    command = 'cmd.exe';
+    args = ['/c', 'start', '', target];
+  } else if (process.platform === 'darwin') {
+    command = 'open';
+    args = [target];
+  } else {
+    command = 'xdg-open';
+    args = [target];
+  }
   try {
-    pool = await initializeDatabase();
-    httpServer = app.listen(port, host, () => {
-      console.log(`Fábrica de Pneus em http://${host}:${port}`);
-      console.log('Banco de dados preparado e servidor Node.js pronto.');
-    });
-    httpServer.on('error', (error) => {
-      if (error.code === 'EADDRINUSE') {
-        console.error(`A porta ${port} já está em uso. Feche a instância deste sistema ou altere PORT no .env.`);
-      } else {
-        console.error('Não foi possível iniciar o servidor:', error);
-      }
-      process.exitCode = 1;
-    });
+    const child = spawn(command, args, { detached: true, stdio: 'ignore', windowsHide: true });
+    child.on('error', (error) => console.warn('Não foi possível abrir o navegador:', error.message));
+    child.unref();
   } catch (error) {
-    console.error('Não foi possível preparar o banco de dados.');
-    console.error(error.message);
-    if (error.number) console.error(`Código SQL Server: ${error.number}`);
-    process.exitCode = 1;
-    if (pool) await pool.close().catch(() => {});
+    console.warn('Não foi possível abrir o navegador:', error.message);
   }
 }
 
-async function shutdown() {
-  if (httpServer) {
-    await new Promise((resolve) => httpServer.close(resolve));
+// Confere que o servidor realmente responde ANTES de abrir o navegador.
+// Era aqui que o sistema abria uma página de erro no boot antigo.
+async function waitForHttp(target, attempts = 20) {
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      const response = await fetch(`${target}/api/status`, { signal: AbortSignal.timeout(1000) });
+      if (response.ok) return true;
+    } catch (error) {
+      // ainda iniciando
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
   }
+  return false;
+}
+
+function announce() {
+  console.log(`Fábrica de Pneus ${APP_VERSION} → ${url}`);
+  console.log(`Porta ${port} (padrão ${DEFAULT_PORT}). Endereço fixo: ${url}`);
+  for (const address of addresses) {
+    const shown = address.includes(':') ? `[${address}]` : address;
+    console.log(`  ouvindo em http://${shown}:${port}`);
+  }
+  if (!isLoopbackOnly(addresses)) {
+    for (const list of Object.values(os.networkInterfaces())) {
+      for (const item of list || []) {
+        if (item.family === 'IPv4' && !item.internal) {
+          console.log(`  na rede: http://${item.address}:${port}`);
+        }
+      }
+    }
+  }
+  console.log('O SQL Server está sendo preparado em segundo plano; a interface já abre.');
+}
+
+async function start() {
+  let portInUse = false;
+
+  for (const address of addresses) {
+    const server = app.listen(port, address);
+    httpServers.push(server);
+
+    server.on('listening', () => {
+      if (announced) return;
+      announced = true;
+      announce();
+      prepareDatabase().catch(() => {});
+      waitForHttp(probe).then((ok) => {
+        if (ok) openBrowser(url);
+        else console.warn(`Não foi possível confirmar o servidor local. Abra manualmente ${url}`);
+      });
+    });
+
+    server.on('error', (error) => {
+      if (error.code === 'EADDRINUSE' || error.code === 'EACCES') {
+        portInUse = true;
+        return;
+      }
+      // IPv6 desabilitado no Windows: o 127.0.0.1 continua funcionando.
+      if (error.code === 'EAFNOSUPPORT' || error.code === 'EADDRNOTAVAIL') {
+        console.warn(`[boot] Endereço ${address} indisponível (IPv6 desabilitado?). Continuando com os demais.`);
+        return;
+      }
+      console.error(`Não foi possível escutar em ${address}:${port}:`, error.message);
+    });
+  }
+
+  // Se a porta já estava ocupada, quase sempre é uma instância antiga do próprio
+  // sistema: abre o navegador nela em vez de mostrar "não foi possível conectar".
+  setTimeout(async () => {
+    if (announced) return;
+    if (portInUse) {
+      const existing = await waitForHttp(probe, 6);
+      if (existing) {
+        console.warn(`Já existe uma instância do sistema rodando em ${url}. Abrindo essa instância.`);
+        openBrowser(url);
+        setInterval(() => {}, 1 << 30); // mantém o processo vivo (o .bat reinicia se ele sair)
+      } else {
+        console.error(`A porta ${port} já está em uso por outro programa. Feche-o ou altere PORT no .env.`);
+        process.exitCode = 1;
+      }
+    } else {
+      console.error('Não foi possível iniciar o servidor HTTP. Veja as mensagens acima.');
+      process.exitCode = 1;
+    }
+  }, 1200);
+}
+
+async function shutdown() {
+  await Promise.all(httpServers.map((server) => new Promise((resolve) => server.close(resolve))));
   if (pool) await pool.close().catch(() => {});
 }
 process.on('SIGINT', () => shutdown().finally(() => process.exit(0)));
@@ -308,8 +519,3 @@ process.on('SIGTERM', () => shutdown().finally(() => process.exit(0)));
 if (require.main === module) start();
 
 module.exports = { app, start };
-
-
-const { exec } = require('child_process');
-
-exec('start "" "http://localhost:5090"');

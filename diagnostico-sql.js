@@ -132,6 +132,8 @@ const config = {
   DB_TRUST_SERVER_CERT: lerEnv('DB_TRUST_SERVER_CERT') || 'true (padrão)',
   DB_ODBC_DRIVER: lerEnv('DB_ODBC_DRIVER') || 'ODBC Driver 18 for SQL Server (padrão)',
   DB_CONNECTION_STRING: lerEnv('DB_CONNECTION_STRING') ? '(definida)' : '(vazia)',
+  PORT: lerEnv('PORT') || '5090 (padrão)',
+  HOST: lerEnv('HOST') || '127.0.0.1 + ::1 (padrão)',
   DB_USER: lerEnv('DB_USER') || '(vazio)',
   DB_PASSWORD: lerEnv('DB_PASSWORD') ? '******' : '(vazio)'
 };

@@ -25,10 +25,22 @@ Conversão do sistema para **HTML, CSS e JavaScript**, com servidor local em **N
    npm start
    ```
 
-5. Acesse **http://localhost:5080**. No primeiro acesso, crie o usuário e a senha (mínimo de 12 caracteres).
+5. Acesse **http://localhost:5090** (o navegador abre sozinho assim que o servidor responde). No primeiro acesso, crie o usuário e a senha (mínimo de 6 caracteres).
 6. Para encerrar, volte ao terminal do servidor e pressione `Ctrl+C`.
 
-O inicializador **não encerra outros processos Node.js ou .NET**. O servidor escuta somente em `127.0.0.1` por padrão, para uso local.
+O inicializador **não encerra outros processos Node.js ou .NET**. Por padrão o servidor escuta nos dois endereços de loopback (`127.0.0.1` e `::1`), para uso local — assim `localhost` funciona mesmo quando o Windows resolve o nome para IPv6. Para acessar de outro computador, defina `HOST=0.0.0.0` e libere a porta no firewall.
+
+> **Atenção:** se o seu `.env` antigo ainda tiver `PORT=5080`, troque para `PORT=5090` ou apague a linha. O servidor também migra esse valor automaticamente na primeira execução e avisa no console. Use `ALLOW_LEGACY_PORT=true` apenas se quiser manter 5080 de propósito.
+
+## Inicialização rápida (o que mudou)
+
+- O servidor HTTP e a interface **abrem imediatamente**, antes do SQL Server ficar pronto. Enquanto o banco é preparado, a tela mostra o progresso em `/api/status` e as chamadas `/api` aguardam; se o SQL Server ainda estiver subindo, a preparação é tentada novamente de forma automática.
+- `schema.sql`, os scripts `sql/*.sql` (relatórios, tipos de entidades e vendedores) e as dezenas de migrações **só rodam quando algum arquivo SQL ou o `src/database.js` muda**. A versão aplicada fica registrada em `dbo.schema_meta`; nos demais boots são apenas duas consultas leves. Para forçar uma reexecução, use `FORCE_SCHEMA_CHECK=true`.
+- A camada de boot rápido fica em `src/boot-database.js` (arquivo novo) e **não altera `src/database.js`**: quando a estrutura mudou, o inicializador original roda exatamente como antes — incluindo os novos scripts SQL de relatórios. Isso preserva modificações locais feitas nesse arquivo.
+- Em boot normal conecta-se direto no banco da aplicação, sem a conexão extra com `master`.
+- O console mostra o tempo de cada etapa (`[boot] ... (+0.4s)`) para facilitar diagnóstico.
+- HTML, CSS e JS passaram a ser revalidados no navegador: atualizar os arquivos não exige mais `Ctrl+F5`. A tela de boot é injetada pelo servidor, sem editar `wwwroot/index.html`.
+- Se já existir uma instância do sistema na porta 5090, o navegador é aberto nela em vez de exibir "não foi possível conectar".
 
 ## Configuração do banco
 
@@ -43,7 +55,8 @@ DB_NAME=FabricaPneus
 DB_ENCRYPT=false
 DB_TRUST_SERVER_CERT=true
 HOST=127.0.0.1
-PORT=5080
+PORT=5090
+OPEN_BROWSER=true
 ```
 
 Se a instância local não for Express, deixe `DB_INSTANCE` vazio. O servidor prepara o schema e as migrações ao iniciar. O SQL Server precisa permitir a criação do banco caso ele ainda não exista.

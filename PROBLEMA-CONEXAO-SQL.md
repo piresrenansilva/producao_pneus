@@ -154,7 +154,7 @@ DB_NAME=FabricaPneus
 DB_ENCRYPT=false
 DB_TRUST_SERVER_CERT=true
 HOST=127.0.0.1
-PORT=5080
+PORT=5090
 ```
 
 Regras que o código aplica:
@@ -203,35 +203,36 @@ Se o `sqlcmd` conecta com `localhost\SQLEXPRESS` e o sistema não conecta, o pro
 
 ---
 
-## 4) Duas armadilhas que existem no repositório hoje
+## 4) Armadilhas que existiam no repositório — todas corrigidas
 
-1. **O `.env` pode simplesmente não existir.** O README diz que o `iniciar.bat` cria o `.env`
-   a partir de um `.env.example` — mas nem o `iniciar.bat` faz isso, nem o `.env.example` está
-   versionado (ele está liberado no `.gitignore`, porém ausente do repositório).
-   Sem `.env`, vale o padrão `localhost` **sem** instância → exatamente o seu erro.
-   → Crie o `.env` à mão (item 2) e adicione um `.env.example` ao repositório (deixei um pronto no workspace).
-2. **`server.js` abre o navegador na porta errada.** No fim do arquivo:
+1. **O `.env` podia simplesmente não existir.** Agora o `iniciar.bat` copia
+   `.env.example` para `.env` na primeira execução, pausa para você conferir os
+   dados e também roda `npm install` quando `node_modules` não existe. O
+   `.env.example` está versionado no repositório.
+2. **O navegador abria na porta errada.** Antes o `server.js` tinha, solto no
+   fim do arquivo, `exec('start "" "http://localhost:5090"')` — executado
+   imediatamente (até quando o módulo era só importado), enquanto o servidor
+   escutava na porta antiga configurada no `.env`. Resultado: página de "não foi possível conectar" e, no
+   console, o endereço com a porta antiga.
+
+   **Situação atual:** existe uma única porta, **5090**, em `server.js`,
+   `.env.example`, `iniciar.bat` e em toda a documentação. O navegador só é
+   aberto depois que o servidor responde de verdade em `/api/status`, e o
+   endereço é montado a partir da porta realmente em uso:
 
    ```js
-   const { exec } = require('child_process');
-   exec('start "" "http://localhost:5090"');
+   const port = resolvePort();           // padrão 5090
+   const url = displayUrl(port);         // http://localhost:5090
+   app.listen(port, '127.0.0.1');        // e também em ::1
+   // no callback de listen: confirma por HTTP e só então openBrowser(url)
    ```
 
-   O servidor escuta em **5080** (`PORT`), mas o navegador é aberto em **5090**.
-   Além disso esse trecho roda no **topo do módulo**, ou seja, também quando o arquivo é
-   apenas importado. O ideal é mover para o callback do `listen` e usar a porta real:
-
-   ```js
-   httpServer = app.listen(port, host, () => {
-     console.log(`Fábrica de Pneus em http://${host}:${port}`);
-     if (process.platform === 'win32' && process.env.OPEN_BROWSER !== 'false') {
-       require('node:child_process').exec(`start "" "http://${host}:${port}"`);
-     }
-   });
-   ```
-
-   E, no Windows, `exec('start "" ...')` deve receber `{ shell: 'cmd.exe' }` — ou simplesmente
-   documentar que o endereço é `http://localhost:5080`.
+   Se um `.env` antigo ainda tiver a porta legada, a primeira execução migra o
+   valor para `5090` e avisa no console (`ALLOW_LEGACY_PORT=true` desativa isso).
+3. **O boot parecia travado.** O HTTP só subia depois que ~70 comandos SQL
+   terminavam. Agora o servidor e a interface sobem na hora, o banco é preparado
+   em segundo plano com progresso na tela, e `schema.sql` + migrações só são
+   reenviados quando o código muda (controle em `dbo.schema_meta`).
 
 ---
 
@@ -243,7 +244,7 @@ Se o `sqlcmd` conecta com `localhost\SQLEXPRESS` e o sistema não conecta, o pro
 | `CREATE DATABASE permission denied` | A conta não pode criar banco → crie `FabricaPneus` manualmente como admin (não apague depois). |
 | `Could not open a connection... SSL Provider: certificate chain` | `DB_ENCRYPT=true` sem CA válida → use `DB_TRUST_SERVER_CERT=true` (padrão do projeto) ou `DB_ENCRYPT=false`. |
 | `Cannot find module 'msnodesqlv8'` | `npm install` incompleto (a dependência é opcional e compila nativo). Rode `npm install` novamente na pasta com o Node 22+; se falhar, use `DB_AUTH=sql`. |
-| `A porta 5080 já está em uso` | Já existe uma instância do sistema aberta (ou outro processo). Feche a janela antiga ou troque `PORT`. |
+| `A porta 5090 já está em uso` | Já existe uma instância do sistema aberta: o servidor detecta, avisa e abre o navegador na instância existente. Se for outro programa, feche-o ou altere `PORT` no `.env`. |
 
 ---
 

@@ -22,7 +22,7 @@
 | Aba Carcaças | botão **"Novo apontamento"** e tela de ordens (em vez da tabela antiga) |
 | Aba Vendas → etapa Pneus | carcaças **não aparecem** no catálogo |
 
-> Se a etiqueta de versão **não aparecer** depois do Ctrl+F5: os arquivos foram copiados para a pasta errada ou há outra instância do servidor rodando em outra porta. Confira se o endereço aberto é o mesmo `http://localhost:5080` iniciado pelo bat e se a pasta onde você colou os arquivos é a mesma que o `iniciar.bat` usa (o `cd /d "..."` na primeira linha dele).
+> Se a etiqueta de versão **não aparecer** depois do Ctrl+F5: os arquivos foram copiados para a pasta errada ou há outra instância do servidor rodando em outra porta. Confira se o endereço aberto é o mesmo `http://localhost:5090` iniciado pelo bat. O `iniciar.bat` novo usa `cd /d "%~dp0"`, ou seja, sempre a própria pasta onde ele está; confira se você colou os arquivos nela.
 
 ---
 
