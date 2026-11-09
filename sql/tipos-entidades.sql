@@ -28,6 +28,36 @@ WHERE NOT EXISTS (
 );
 GO
 
+/* A aplicação identifica Vendedor pelo id 4. Reserve esse id antes de
+   importar tipos antigos, sem alterar um cadastro existente por engano. */
+IF EXISTS (
+  SELECT 1 FROM dbo.tiposEntidades
+  WHERE id = 4 AND LTRIM(RTRIM(nome)) COLLATE Latin1_General_CI_AI <> N'Vendedor' COLLATE Latin1_General_CI_AI
+)
+  THROW 50001, 'O tipo de entidade id 4 ja pertence a outro cadastro. Verifique dbo.tiposEntidades antes de continuar.', 1;
+
+IF EXISTS (
+  SELECT 1 FROM dbo.tiposEntidades
+  WHERE id <> 4 AND LTRIM(RTRIM(nome)) COLLATE Latin1_General_CI_AI = N'Vendedor' COLLATE Latin1_General_CI_AI
+)
+  THROW 50002, 'O tipo Vendedor ja existe com id diferente de 4. Verifique dbo.tiposEntidades antes de continuar.', 1;
+
+IF NOT EXISTS (SELECT 1 FROM dbo.tiposEntidades WHERE id = 4)
+BEGIN
+  BEGIN TRY
+    SET IDENTITY_INSERT dbo.tiposEntidades ON;
+    INSERT INTO dbo.tiposEntidades (id, nome, status) VALUES (4, N'Vendedor', N'Ativo');
+    SET IDENTITY_INSERT dbo.tiposEntidades OFF;
+  END TRY
+  BEGIN CATCH
+    SET IDENTITY_INSERT dbo.tiposEntidades OFF;
+    THROW;
+  END CATCH;
+END
+ELSE
+  UPDATE dbo.tiposEntidades SET status = N'Ativo' WHERE id = 4 AND status <> N'Ativo';
+GO
+
 IF COL_LENGTH(N'dbo.clientes', N'tipoEntidadeId') IS NULL
   ALTER TABLE dbo.clientes ADD tipoEntidadeId int NULL;
 GO
