@@ -2,6 +2,7 @@ const { sql } = require('./database');
 const { tables } = require('./definitions');
 const { badRequest, conflict, notFound } = require('./errors');
 const { normalizeSaleUnitPrice } = require('./sale-prices');
+const { setAuditContext, clearAuditContext } = require('./audit-context');
 
 function isObject(value) {
   return value != null && typeof value === 'object' && !Array.isArray(value);
@@ -308,12 +309,13 @@ async function loadCondicaoPagamento(transaction, value, currentCodigo = null) {
   return condicao;
 }
 
-async function saveCondicaoPagamento(pool, body, existingCodigo = null) {
+async function saveCondicaoPagamento(pool, body, existingCodigo = null, audit = null) {
   if (!isObject(body)) throw badRequest('O corpo da forma de pagamento deve ser um objeto JSON.');
   const codigoAtual = existingCodigo == null ? null : parseCodigo(existingCodigo);
   const transaction = new sql.Transaction(pool);
   await transaction.begin(sql.ISOLATION_LEVEL.READ_COMMITTED);
   try {
+    await setAuditContext(transaction, audit);
     let current = null;
     if (codigoAtual) {
       const result = await new sql.Request(transaction)
@@ -355,23 +357,26 @@ async function saveCondicaoPagamento(pool, body, existingCodigo = null) {
         SET Descricao = @descricao, Tipo = @tipo, QuantidadeParcelas = @parcelas, PrazoMedio = @prazo, Status = @status
         WHERE Codigo = @codigo`);
     } else {
-      const inserted = await request.query(`INSERT INTO dbo.CondicoesPagamento (Descricao, Tipo, QuantidadeParcelas, PrazoMedio, Status)
-        OUTPUT inserted.Codigo VALUES (@descricao, @tipo, @parcelas, @prazo, @status)`);
+      const inserted = await request.query(`DECLARE @saida TABLE (Codigo int); INSERT INTO dbo.CondicoesPagamento (Descricao, Tipo, QuantidadeParcelas, PrazoMedio, Status)
+        OUTPUT inserted.Codigo INTO @saida VALUES (@descricao, @tipo, @parcelas, @prazo, @status); SELECT Codigo FROM @saida;`);
       codigo = inserted.recordset[0].Codigo;
     }
+    await clearAuditContext(transaction);
     await transaction.commit();
     return { id: String(codigo) };
   } catch (error) {
+    await clearAuditContext(transaction).catch(() => {});
     await transaction.rollback().catch(() => {});
     throw error;
   }
 }
 
-async function deleteCondicaoPagamento(pool, value) {
+async function deleteCondicaoPagamento(pool, value, audit = null) {
   const codigo = parseCodigo(value);
   const transaction = new sql.Transaction(pool);
   await transaction.begin(sql.ISOLATION_LEVEL.READ_COMMITTED);
   try {
+    await setAuditContext(transaction, audit);
     const uso = await new sql.Request(transaction)
       .input('codigo', sql.Int, codigo)
       .query(`SELECT (SELECT COUNT(1) FROM dbo.pedidos WHERE condicaoPagamentoId = @codigo) AS vendas,
@@ -384,8 +389,10 @@ async function deleteCondicaoPagamento(pool, value) {
       .input('codigo', sql.Int, codigo)
       .query('DELETE FROM dbo.CondicoesPagamento WHERE Codigo = @codigo');
     if (result.rowsAffected[0] === 0) throw notFound('Forma de pagamento não encontrada.');
+    await clearAuditContext(transaction);
     await transaction.commit();
   } catch (error) {
+    await clearAuditContext(transaction).catch(() => {});
     await transaction.rollback().catch(() => {});
     throw error;
   }
@@ -409,11 +416,12 @@ function addDays(isoDate, days) {
 
 // Cria ou altera um lançamento financeiro. Na edição, os campos não enviados
 // mantêm o valor atual (permite, por exemplo, só "marcar como pago").
-async function saveLancamento(pool, body, existingId = null) {
+async function saveLancamento(pool, body, existingId = null, audit = null) {
   if (!isObject(body)) throw badRequest('O corpo do lançamento deve ser um objeto JSON.');
   const transaction = new sql.Transaction(pool);
   await transaction.begin(sql.ISOLATION_LEVEL.READ_COMMITTED);
   try {
+    await setAuditContext(transaction, audit);
     let current = null;
     if (existingId) {
       const result = await new sql.Request(transaction)
@@ -511,15 +519,17 @@ async function saveLancamento(pool, body, existingId = null) {
                     formaPagamento=@formaPagamento, condicaoPagamentoId=@condicaoPagamentoId, status=@status, obs=@obs
                 WHERE id=@id`);
     } else {
-      const inserted = await request.query(`INSERT INTO dbo.financeiro_lancamentos
+      const inserted = await request.query(`DECLARE @saida TABLE (id uniqueidentifier); INSERT INTO dbo.financeiro_lancamentos
           (tipo, categoriaId, entidadeId, pessoa, descricao, documento, valor, emissao, vencimento, pagamento, formaPagamento, condicaoPagamentoId, status, obs, origem)
-        OUTPUT inserted.id
-        VALUES (@tipo, @categoriaId, @entidadeId, @pessoa, @descricao, @documento, @valor, @emissao, @vencimento, @pagamento, @formaPagamento, @condicaoPagamentoId, @status, @obs, N'manual')`);
+        OUTPUT inserted.id INTO @saida
+        VALUES (@tipo, @categoriaId, @entidadeId, @pessoa, @descricao, @documento, @valor, @emissao, @vencimento, @pagamento, @formaPagamento, @condicaoPagamentoId, @status, @obs, N'manual'); SELECT id FROM @saida;`);
       id = inserted.recordset[0].id;
     }
+    await clearAuditContext(transaction);
     await transaction.commit();
     return { id: String(id) };
   } catch (error) {
+    await clearAuditContext(transaction).catch(() => {});
     await transaction.rollback().catch(() => {});
     throw error;
   }
@@ -589,7 +599,7 @@ async function cancelSaleReceivables(transaction, orderId) {
             WHERE pedidoId = @id AND origem = N'venda' AND status = N'pendente'`);
 }
 
-async function createRow(pool, route, body) {
+async function createRow(pool, route, body, audit = null) {
   const definition = tables[route];
   if (!definition) throw notFound('Rota não encontrada.');
   ensureWritableRoute(definition);
@@ -603,8 +613,8 @@ async function createRow(pool, route, body) {
   if (route === 'cargas') {
     throw conflict('Movimentos de carga e descarga devem ser salvos pelo fluxo próprio, com os produtos.');
   }
-  if (route === 'lancamentos') return saveLancamento(pool, body);
-  if (route === 'condicoesPagamento') return saveCondicaoPagamento(pool, body);
+  if (route === 'lancamentos') return saveLancamento(pool, body, null, audit);
+  if (route === 'condicoesPagamento') return saveCondicaoPagamento(pool, body, null, audit);
 
   const fields = definition.columns.filter((column) => !column.readOnly && Object.prototype.hasOwnProperty.call(body, column.name));
   if (fields.length === 0) throw badRequest('Informe ao menos um campo para salvar.');
@@ -612,6 +622,7 @@ async function createRow(pool, route, body) {
   const transaction = new sql.Transaction(pool);
   await transaction.begin(sql.ISOLATION_LEVEL.READ_COMMITTED);
   try {
+    await setAuditContext(transaction, audit);
     if (route === 'cargas' && Object.prototype.hasOwnProperty.call(body, 'pedidoId')) {
       await validateCargaPedido(transaction, body.pedidoId);
     }
@@ -635,12 +646,14 @@ async function createRow(pool, route, body) {
     for (const field of fields) bindColumn(request, field, body[field.name]);
     const names = fields.map((field) => `[${field.name}]`).join(', ');
     const values = fields.map((field) => `@${field.name}`).join(', ');
-    const result = await request.query(`INSERT INTO dbo.[${definition.table}] (${names}) OUTPUT inserted.id VALUES (${values})`);
+    const result = await request.query(`DECLARE @saida TABLE (id uniqueidentifier); INSERT INTO dbo.[${definition.table}] (${names}) OUTPUT inserted.id INTO @saida VALUES (${values}); SELECT id FROM @saida;`);
     const id = result.recordset[0].id;
     if (route === 'produtos') await syncProductStock(transaction, id);
+    await clearAuditContext(transaction);
     await transaction.commit();
     return { id: String(id) };
   } catch (error) {
+    await clearAuditContext(transaction).catch(() => {});
     await transaction.rollback().catch(() => {});
     throw error;
   }
@@ -675,7 +688,7 @@ function parseSalesItems(value) {
   return value;
 }
 
-async function createOrUpdateSale(pool, body, existingOrderId = null) {
+async function createOrUpdateSale(pool, body, existingOrderId = null, audit = null) {
   if (!isObject(body)) throw badRequest('O corpo da venda deve ser um objeto JSON.');
   const clientId = parseGuid(body.clienteId, 'Cliente');
   if (!clientId) throw conflict('Selecione um cliente cadastrado.');
@@ -701,6 +714,7 @@ async function createOrUpdateSale(pool, body, existingOrderId = null) {
   const transaction = new sql.Transaction(pool);
   await transaction.begin(sql.ISOLATION_LEVEL.READ_COMMITTED);
   try {
+    await setAuditContext(transaction, audit);
     const seller = await loadVendedorDaVenda(transaction, requestedSellerId);
     let currentCondicao = null;
     if (existingOrderId) {
@@ -796,13 +810,13 @@ async function createOrUpdateSale(pool, body, existingOrderId = null) {
         .input('box', sql.NVarChar(100), box)
         .input('agendamento', sql.Date, appointment)
         .input('horario', sql.NVarChar(10), time)
-        .query(`UPDATE dbo.pedidos
+        .query(`DECLARE @saida TABLE (id uniqueidentifier, numero nvarchar(20)); UPDATE dbo.pedidos
                 SET data=@data, cliente=@cliente, pagamento=@pagamento, condicaoPagamentoId=@condicaoPagamentoId,
                     vendedor=@vendedor, vendedorId=@vendedorId, previsao=@previsao,
                     obs=@obs, clienteId=@clienteId, veiculoId=@veiculoId, descontoPercentual=@percentual,
                     descontoValor=@desconto, box=@box, agendamento=@agendamento, horario=@horario
-                OUTPUT inserted.id, inserted.numero
-                WHERE id=@id AND status=N'orçamento'`);
+                OUTPUT inserted.id, inserted.numero INTO @saida
+                WHERE id=@id AND status=N'orçamento'; SELECT id, numero FROM @saida;`);
       const order = update.recordset[0];
       if (!order) throw conflict('O pedido deixou de ser um orçamento e não pode ser alterado.');
       orderId = order.id;
@@ -828,13 +842,13 @@ async function createOrUpdateSale(pool, body, existingOrderId = null) {
         .input('box', sql.NVarChar(100), box)
         .input('agendamento', sql.Date, appointment)
         .input('horario', sql.NVarChar(10), time)
-        .query(`INSERT INTO dbo.pedidos
+        .query(`DECLARE @saida TABLE (id uniqueidentifier, numero nvarchar(20)); INSERT INTO dbo.pedidos
                   (numero, data, cliente, pagamento, condicaoPagamentoId, status, vendedor, vendedorId, previsao, obs, clienteId, veiculoId,
                    descontoPercentual, descontoValor, box, agendamento, horario)
-                OUTPUT inserted.id, inserted.numero
+                OUTPUT inserted.id, inserted.numero INTO @saida
                 VALUES ('PED-' + FORMAT(NEXT VALUE FOR dbo.seq_pedido, '0000'), @data, @cliente, @pagamento, @condicaoPagamentoId,
                         @status, @vendedor, @vendedorId, @previsao, @obs, @clienteId, @veiculoId,
-                        @percentual, @desconto, @box, @agendamento, @horario)`);
+                        @percentual, @desconto, @box, @agendamento, @horario); SELECT id, numero FROM @saida;`);
       orderId = inserted.recordset[0].id;
       orderNumber = inserted.recordset[0].numero;
     }
@@ -859,9 +873,11 @@ async function createOrUpdateSale(pool, body, existingOrderId = null) {
       await adjustOrderStock(transaction, orderId, true);
       await createSaleReceivable(transaction, orderId);
     }
+    await clearAuditContext(transaction);
     await transaction.commit();
     return { id: String(orderId), numero: String(orderNumber) };
   } catch (error) {
+    await clearAuditContext(transaction).catch(() => {});
     await transaction.rollback().catch(() => {});
     throw error;
   }
@@ -871,24 +887,25 @@ function isSaleCompleted(status) {
   return ['faturado', 'pago'].includes(String(status || '').toLowerCase());
 }
 
-async function updateRow(pool, route, id, body) {
+async function updateRow(pool, route, id, body, audit = null) {
   const definition = tables[route];
   if (!definition) throw notFound('Rota não encontrada.');
   ensureWritableRoute(definition);
   if (!isObject(body)) throw badRequest('O corpo da requisição deve ser um objeto JSON.');
   if (route === 'condicoesPagamento') {
-    await saveCondicaoPagamento(pool, body, id);
+    await saveCondicaoPagamento(pool, body, id, audit);
     return;
   }
   const validId = parseGuid(id, 'Identificador');
   if (route === 'lancamentos') {
-    await saveLancamento(pool, body, validId);
+    await saveLancamento(pool, body, validId, audit);
     return;
   }
 
   const transaction = new sql.Transaction(pool);
   await transaction.begin(sql.ISOLATION_LEVEL.READ_COMMITTED);
   try {
+    await setAuditContext(transaction, audit);
     if (route === 'cargas' && Object.prototype.hasOwnProperty.call(body, 'pedidoId')) {
       await validateCargaPedido(transaction, body.pedidoId, validId);
     }
@@ -953,18 +970,20 @@ async function updateRow(pool, route, id, body) {
     }
 
     if (route === 'produtos') await syncProductStock(transaction, validId);
+    await clearAuditContext(transaction);
     await transaction.commit();
   } catch (error) {
+    await clearAuditContext(transaction).catch(() => {});
     await transaction.rollback().catch(() => {});
     throw error;
   }
 }
 
-async function deleteRow(pool, route, id) {
+async function deleteRow(pool, route, id, audit = null) {
   const definition = tables[route];
   if (!definition) throw notFound('Rota não encontrada.');
   ensureWritableRoute(definition);
-  if (route === 'condicoesPagamento') return deleteCondicaoPagamento(pool, id);
+  if (route === 'condicoesPagamento') return deleteCondicaoPagamento(pool, id, audit);
   if (route === 'pedidos') {
     throw conflict('Pedidos não são excluídos. Use "Cancelar pedido" para manter o histórico.');
   }
@@ -972,6 +991,7 @@ async function deleteRow(pool, route, id) {
   const transaction = new sql.Transaction(pool);
   await transaction.begin(sql.ISOLATION_LEVEL.READ_COMMITTED);
   try {
+    await setAuditContext(transaction, audit);
     if (route === 'cargas') {
       const existing = await new sql.Request(transaction)
         .input('id', sql.UniqueIdentifier, validId)
@@ -995,8 +1015,10 @@ async function deleteRow(pool, route, id) {
       .input('id', sql.UniqueIdentifier, validId)
       .query(`DELETE FROM dbo.[${definition.table}] WHERE id = @id`);
     if (result.rowsAffected[0] === 0) throw notFound('Registro não encontrado.');
+    await clearAuditContext(transaction);
     await transaction.commit();
   } catch (error) {
+    await clearAuditContext(transaction).catch(() => {});
     await transaction.rollback().catch(() => {});
     throw error;
   }
@@ -1045,7 +1067,7 @@ function normalizeCarcacaCategoria(value) {
 
 // Apontamento de entrada de carcaças: ordem com itens (produtos da categoria
 // Carcaça), valor unitário por carcaça, total por linha e total do apontamento.
-async function createOrUpdateCarcacaOrdem(pool, body, existingOrdemId = null) {
+async function createOrUpdateCarcacaOrdem(pool, body, existingOrdemId = null, audit = null) {
   if (!isObject(body)) throw badRequest('O corpo do apontamento deve ser um objeto JSON.');
   const data = parseDate(body.data || localToday(), 'Data');
   const dono = getText(body, 'dono');
@@ -1062,6 +1084,7 @@ async function createOrUpdateCarcacaOrdem(pool, body, existingOrdemId = null) {
   const transaction = new sql.Transaction(pool);
   await transaction.begin(sql.ISOLATION_LEVEL.READ_COMMITTED);
   try {
+    await setAuditContext(transaction, audit);
     if (existingOrdemId) {
       const existing = await new sql.Request(transaction)
         .input('id', sql.UniqueIdentifier, existingOrdemId)
@@ -1116,10 +1139,10 @@ async function createOrUpdateCarcacaOrdem(pool, body, existingOrdemId = null) {
         .input('status', sql.NVarChar(30), status)
         .input('obs', sql.NVarChar(500), obs)
         .input('total', sql.Decimal(12, 2), total)
-        .query(`UPDATE dbo.carcaca_ordens
+        .query(`DECLARE @saida TABLE (id uniqueidentifier, numero nvarchar(20)); UPDATE dbo.carcaca_ordens
                 SET data=@data, dono=@dono, origem=@origem, status=@status, obs=@obs, total=@total
-                OUTPUT inserted.id, inserted.numero
-                WHERE id=@id AND status=N'registrado'`);
+                OUTPUT inserted.id, inserted.numero INTO @saida
+                WHERE id=@id AND status=N'registrado'; SELECT id, numero FROM @saida;`);
       const ordem = update.recordset[0];
       if (!ordem) throw conflict('O apontamento deixou de ser registrado e não pode ser alterado.');
       ordemId = ordem.id;
@@ -1135,9 +1158,9 @@ async function createOrUpdateCarcacaOrdem(pool, body, existingOrdemId = null) {
         .input('status', sql.NVarChar(30), status)
         .input('obs', sql.NVarChar(500), obs)
         .input('total', sql.Decimal(12, 2), total)
-        .query(`INSERT INTO dbo.carcaca_ordens (numero, data, dono, origem, status, obs, total)
-                OUTPUT inserted.id, inserted.numero
-                VALUES ('CAR-' + FORMAT(NEXT VALUE FOR dbo.seq_carcaca_ordem, '0000'), @data, @dono, @origem, @status, @obs, @total)`);
+        .query(`DECLARE @saida TABLE (id uniqueidentifier, numero nvarchar(20)); INSERT INTO dbo.carcaca_ordens (numero, data, dono, origem, status, obs, total)
+                OUTPUT inserted.id, inserted.numero INTO @saida
+                VALUES ('CAR-' + FORMAT(NEXT VALUE FOR dbo.seq_carcaca_ordem, '0000'), @data, @dono, @origem, @status, @obs, @total); SELECT id, numero FROM @saida;`);
       ordemId = inserted.recordset[0].id;
       ordemNumero = inserted.recordset[0].numero;
     }
@@ -1157,9 +1180,11 @@ async function createOrUpdateCarcacaOrdem(pool, body, existingOrdemId = null) {
                 VALUES (@ordemId, @produtoRef, @produtoId, @item, @medida, @qtd, @valorUnitario, @valorTotal)`);
     }
 
+    await clearAuditContext(transaction);
     await transaction.commit();
     return { id: String(ordemId), numero: String(ordemNumero), total };
   } catch (error) {
+    await clearAuditContext(transaction).catch(() => {});
     await transaction.rollback().catch(() => {});
     throw error;
   }
@@ -1228,7 +1253,7 @@ async function revertCargaStock(transaction, cargaId, tipo) {
   }
 }
 
-async function createOrUpdateCarga(pool, body, existingCargaId = null) {
+async function createOrUpdateCarga(pool, body, existingCargaId = null, audit = null) {
   if (!isObject(body)) throw badRequest('O corpo do movimento deve ser um objeto JSON.');
   const tipo = getText(body, 'tipo').toLowerCase();
   if (!CARGA_TIPOS.includes(tipo)) throw conflict('Selecione o tipo do movimento (carga ou descarga).');
@@ -1267,6 +1292,7 @@ async function createOrUpdateCarga(pool, body, existingCargaId = null) {
   const transaction = new sql.Transaction(pool);
   await transaction.begin(sql.ISOLATION_LEVEL.READ_COMMITTED);
   try {
+    await setAuditContext(transaction, audit);
     const previousRefs = new Set();
     if (existingCargaId) {
       const existing = await new sql.Request(transaction)
@@ -1321,10 +1347,10 @@ async function createOrUpdateCarga(pool, body, existingCargaId = null) {
         WHERE id=@id`);
       cargaId = existingCargaId;
     } else {
-      const inserted = await request.query(`INSERT INTO dbo.cargas
+      const inserted = await request.query(`DECLARE @saida TABLE (id uniqueidentifier); INSERT INTO dbo.cargas
           (tipo, data, motorista, funcionario, transportadora, nf, pedidoId, qtd, status, estoqueMovimentado)
-        OUTPUT inserted.id
-        VALUES (@tipo, @data, @motorista, @funcionario, @transportadora, @nf, @pedidoId, @qtd, @status, @movimentado)`);
+        OUTPUT inserted.id INTO @saida
+        VALUES (@tipo, @data, @motorista, @funcionario, @transportadora, @nf, @pedidoId, @qtd, @status, @movimentado); SELECT id FROM @saida;`);
       cargaId = inserted.recordset[0].id;
     }
 
@@ -1344,9 +1370,11 @@ async function createOrUpdateCarga(pool, body, existingCargaId = null) {
       }
     }
 
+    await clearAuditContext(transaction);
     await transaction.commit();
     return { id: String(cargaId), totalPecas: totalQuantity, estoqueMovimentado: movimenta };
   } catch (error) {
+    await clearAuditContext(transaction).catch(() => {});
     await transaction.rollback().catch(() => {});
     throw error;
   }

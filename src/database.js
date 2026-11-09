@@ -472,6 +472,7 @@ async function initializeDatabase() {
     await applySqlBatches(pool, path.join('sql', 'tipos-entidades.sql'), 'sql/tipos-entidades.sql');
     await applySqlBatches(pool, path.join('sql', 'vendedores.sql'), 'sql/vendedores.sql');
     await applySqlBatches(pool, path.join('sql', 'relatorios.sql'), 'sql/relatorios.sql');
+    await applySqlBatches(pool, path.join('sql', 'auditoria.sql'), 'sql/auditoria.sql');
     await warnDuplicateProductCodes(pool);
     return pool;
   } catch (error) {
