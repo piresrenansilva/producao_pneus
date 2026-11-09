@@ -70,7 +70,7 @@ O que o output já provou:
    DB_TRUST_SERVER_CERT=true
    ```
 
-> ⚠️ Como você tem duas instâncias, o sistema **cria o banco `FabricaPneus` na instância para onde apontar**.
+> ⚠️ Como você tem duas instâncias, o sistema **cria o banco indicado em `DB_NAME` na instância para onde apontar**.
 > Se os dados antigos estão na outra, você veria “sistema vazio” — aponte para a certa (passo 1).
 
 ### Caminho B — funciona agora, sem mexer em configuração do SQL Server
@@ -84,9 +84,9 @@ DB_ODBC_DRIVER=ODBC Driver 18 for SQL Server
 DB_SERVER=localhost
 DB_INSTANCE=
 DB_PORT=
-DB_NAME=FabricaPneus
+DB_NAME=NomeDoSeuBanco
 DB_ENCRYPT=false
-DB_CONNECTION_STRING=Driver={ODBC Driver 18 for SQL Server};Server=localhost\SQLEXPRESS;Database=FabricaPneus;Trusted_Connection=Yes;Encrypt=No;
+DB_CONNECTION_STRING=Driver={ODBC Driver 18 for SQL Server};Server=localhost\SQLEXPRESS;Trusted_Connection=Yes;Encrypt=No;
 ```
 
 Troque `localhost\SQLEXPRESS` por `localhost` se os dados estiverem na instância padrão.
@@ -150,7 +150,7 @@ DB_ODBC_DRIVER=ODBC Driver 18 for SQL Server
 DB_SERVER=localhost
 DB_INSTANCE=SQLEXPRESS
 DB_PORT=
-DB_NAME=FabricaPneus
+DB_NAME=NomeDoSeuBanco
 DB_ENCRYPT=false
 DB_TRUST_SERVER_CERT=true
 HOST=127.0.0.1
@@ -164,7 +164,7 @@ Regras que o código aplica:
 | Instância padrão | `DB_SERVER=localhost`, `DB_INSTANCE=` vazio, `DB_PORT=` vazio (usa 1433) |
 | Instância nomeada (Express) | `DB_INSTANCE=SQLEXPRESS`, `DB_PORT=` **vazio** (o driver resolve pelo SQL Browser) |
 | Instância nomeada em porta fixa | `DB_INSTANCE=SQLEXPRESS` **e** `DB_PORT=1433` (ou a porta que você fixou) |
-| LocalDB | `DB_CONNECTION_STRING=Driver={ODBC Driver 18 for SQL Server};Server=(localdb)\MSSQLLocalDB;Database=FabricaPneus;Trusted_Connection=Yes;Encrypt=No;` |
+| LocalDB | `DB_CONNECTION_STRING=Driver={ODBC Driver 18 for SQL Server};Server=(localdb)\MSSQLLocalDB;Trusted_Connection=Yes;Encrypt=No;` |
 | Outro PC / outro host | `DB_SERVER=NOME-DA-MAQUINA` ou `IP`, e lá o TCP/IP precisa estar habilitado e o firewall liberado |
 
 ⚠️ Tenha cuidado: `DB_INSTANCE` **não** é o nome do serviço (`MSSQL$SQLEXPRESS`), é só `SQLEXPRESS`.
@@ -183,7 +183,7 @@ Nunca coloque `DB_SERVER=localhost\SQLEXPRESS` — o código já compõe `servid
    Em *Endereços IP* → **IPAll**: deixe *Portas Dinâmicas TCP* vazio e *Porta TCP* = `1433`
    se quiser fixar a porta (aí pode usar `DB_PORT=1433` e dispensar o Browser).
 3. **Autenticação integrada**: seu usuário do Windows precisa existir como login no SQL Server
-   com permissão para **criar banco** (o sistema tenta `CREATE DATABASE FabricaPneus` no primeiro boot).
+   com permissão para **criar banco** (o sistema tenta `CREATE DATABASE` para o nome definido em `DB_NAME` no primeiro boot).
    Instalações do Express com “usuários do Windows” já vêm assim; se você usa SQL Server em outro
    computador, costuma ser mais fácil usar `DB_AUTH=sql`, `DB_USER=sa` e `DB_PASSWORD=...`
    (com *Autenticação de Modo Misto* habilitada).
@@ -241,7 +241,7 @@ Se o `sqlcmd` conecta com `localhost\SQLEXPRESS` e o sistema não conecta, o pro
 | Mensagem | Causa / solução |
 |---|---|
 | `Login failed for user 'NT AUTHORITY\...'` | Seu usuário Windows não tem login no SQL Server → crie o login ou use `DB_AUTH=sql`. |
-| `CREATE DATABASE permission denied` | A conta não pode criar banco → crie `FabricaPneus` manualmente como admin (não apague depois). |
+| `CREATE DATABASE permission denied` | A conta não pode criar banco → crie o banco indicado em `DB_NAME` manualmente como admin (não apague depois). |
 | `Could not open a connection... SSL Provider: certificate chain` | `DB_ENCRYPT=true` sem CA válida → use `DB_TRUST_SERVER_CERT=true` (padrão do projeto) ou `DB_ENCRYPT=false`. |
 | `Cannot find module 'msnodesqlv8'` | `npm install` incompleto (a dependência é opcional e compila nativo). Rode `npm install` novamente na pasta com o Node 22+; se falhar, use `DB_AUTH=sql`. |
 | `A porta 5090 já está em uso` | Já existe uma instância do sistema aberta: o servidor detecta, avisa e abre o navegador na instância existente. Se for outro programa, feche-o ou altere `PORT` no `.env`. |

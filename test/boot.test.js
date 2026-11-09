@@ -237,3 +237,40 @@ test('boot rápido: o 2º boot não reaplica schema, migrações nem sql/*.sql',
     }
   }
 });
+
+test('os dois caminhos de boot exigem DB_NAME e usam esse nome na conexão', async () => {
+  const caminhoMssql = require.resolve('mssql');
+  const caminhoDatabase = require.resolve('../src/database');
+  const caminhoBoot = require.resolve('../src/boot-database');
+  const anteriorCache = require.cache[caminhoMssql];
+  const variaveis = ['DB_AUTH', 'DB_USER', 'DB_PASSWORD', 'DB_NAME', 'DB_CONNECTION_STRING'];
+  const anteriorEnv = Object.fromEntries(variaveis.map((k) => [k, process.env[k]]));
+  try {
+    process.env.DB_AUTH = 'sql';
+    process.env.DB_USER = 'usuario';
+    process.env.DB_PASSWORD = 'senha';
+    process.env.DB_CONNECTION_STRING = 'Server=localhost;Database=BancoAntigo;';
+    delete process.env.DB_NAME;
+    const { estado, sqlFalso } = driverFalso();
+    require.cache[caminhoMssql] = { id: caminhoMssql, filename: caminhoMssql, loaded: true, exports: sqlFalso, children: [], paths: [] };
+    delete require.cache[caminhoDatabase];
+    delete require.cache[caminhoBoot];
+    const { initializeDatabase, configFor } = require('../src/database');
+    const { initializeDatabaseFast } = require('../src/boot-database');
+    await assert.rejects(initializeDatabase(), /Defina DB_NAME/);
+    await assert.rejects(initializeDatabaseFast(), /Defina DB_NAME/);
+    assert.equal(estado.queries.length, 0);
+    process.env.DB_NAME = 'BancoEscolhido';
+    assert.equal(configFor(process.env.DB_NAME).connectionString, 'Server=localhost;Database=BancoEscolhido;');
+    assert.equal(configFor('master').connectionString, 'Server=localhost;Database=master;');
+  } finally {
+    delete require.cache[caminhoBoot];
+    delete require.cache[caminhoDatabase];
+    delete require.cache[caminhoMssql];
+    if (anteriorCache) require.cache[caminhoMssql] = anteriorCache;
+    for (const [k, v] of Object.entries(anteriorEnv)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+});

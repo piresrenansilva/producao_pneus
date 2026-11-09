@@ -14,6 +14,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const { connectionStringFor } = require('./src/db-config');
 
 const ROOT = __dirname;
 const LOG_PATH = path.join(ROOT, 'diagnostico-sql.log');
@@ -118,7 +119,7 @@ const envPath = path.join(ROOT, '.env');
 if (!fs.existsSync(envPath)) {
   aviso('Nenhum arquivo .env encontrado nesta pasta.');
   info('Sem .env o sistema assume DB_AUTH=windows, DB_SERVER=localhost e SEM instância,');
-  info('ou seja, tenta conectar em localhost:1433 (instância padrão).');
+  info('O aplicativo exige DB_NAME definido no .env antes de conectar.');
 } else {
   ok(`.env encontrado: ${envPath}`);
 }
@@ -127,7 +128,7 @@ const config = {
   DB_SERVER: lerEnv('DB_SERVER') || 'localhost (padrão)',
   DB_PORT: lerEnv('DB_PORT') || '(padrão 1433)',
   DB_INSTANCE: lerEnv('DB_INSTANCE') || '(vazia)',
-  DB_NAME: lerEnv('DB_NAME') || 'FabricaPneus (padrão)',
+  DB_NAME: lerEnv('DB_NAME') || '(não definido — obrigatório)',
   DB_ENCRYPT: lerEnv('DB_ENCRYPT') || 'false (padrão)',
   DB_TRUST_SERVER_CERT: lerEnv('DB_TRUST_SERVER_CERT') || 'true (padrão)',
   DB_ODBC_DRIVER: lerEnv('DB_ODBC_DRIVER') || 'ODBC Driver 18 for SQL Server (padrão)',
@@ -521,7 +522,7 @@ async function main() {
   if (ehLocalDb) {
     log('  DB_INSTANCE=');
     log('  DB_PORT=');
-    log(`  DB_CONNECTION_STRING=${alvo.cfg.connectionString}`);
+    log(`  DB_CONNECTION_STRING=${connectionStringFor(alvo.cfg.connectionString, null)}`);
   } else if (instanciaNomeada) {
     log(`  DB_INSTANCE=${instanciaNomeada}`);
     log('  DB_PORT=');
@@ -529,7 +530,8 @@ async function main() {
     log('  DB_INSTANCE=');
     log(`  DB_PORT=${portaFixa || 1433}`);
   }
-  log(`  DB_NAME=${lerEnv('DB_NAME') || 'FabricaPneus'}`);
+  log(`  DB_NAME=${lerEnv('DB_NAME')}`);
+  if (!lerEnv('DB_NAME')) aviso('Preencha DB_NAME no .env com o nome correto do banco.');
   log(`  DB_ENCRYPT=${boolEnv('DB_ENCRYPT', false) ? 'true' : 'false'}`);
   log(`  DB_TRUST_SERVER_CERT=${boolEnv('DB_TRUST_SERVER_CERT', true) ? 'true' : 'false'}`);
   linha('-');
@@ -545,7 +547,7 @@ async function main() {
     }
   }
   log('  Depois rode: npm start   (ou duplo clique em iniciar.bat)');
-  log('  Importante: o banco FabricaPneus é criado na instância informada —');
+  log('  Importante: o banco indicado em DB_NAME é criado na instância informada —');
   log('  se seus dados antigos estão em OUTRA instância, aponte para ela.');
   log('');
   fs.writeFileSync(LOG_PATH, linhasLog.join('\n'), 'utf8');

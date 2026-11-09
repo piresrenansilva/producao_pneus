@@ -8,7 +8,7 @@ Conversão do sistema para **HTML, CSS e JavaScript**, com servidor local em **N
 - Node.js 22 ou superior.
 - SQL Server instalado e em execução (Express ou edição completa).
 - Microsoft ODBC Driver 18 for SQL Server para autenticação integrada do Windows.
-- Permissão no SQL Server para criar o banco `FabricaPneus` e criar/alterar tabelas. Se o banco já existir, não o apague.
+- Permissão no SQL Server para criar o banco indicado em `DB_NAME` no `.env` e criar/alterar tabelas. Se o banco já existir, não o apague.
 
 ## Iniciar no Windows
 
@@ -44,14 +44,14 @@ O inicializador **não encerra outros processos Node.js ou .NET**. Por padrão o
 
 ## Configuração do banco
 
-As opções ficam no arquivo `.env`, que não deve ser enviado ao GitHub:
+As opções ficam no arquivo `.env`, que não deve ser enviado ao GitHub. `DB_NAME` é obrigatório: informe o nome exato do banco existente para não criar outro banco vazio. A configuração `DB_CONNECTION_STRING`, se usada, não determina o nome do banco; `DB_NAME` prevalece:
 
 ```env
 DB_AUTH=windows
 DB_ODBC_DRIVER=ODBC Driver 18 for SQL Server
 DB_SERVER=localhost
 DB_INSTANCE=SQLEXPRESS
-DB_NAME=FabricaPneus
+DB_NAME=NomeDoSeuBanco
 DB_ENCRYPT=false
 DB_TRUST_SERVER_CERT=true
 HOST=127.0.0.1

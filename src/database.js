@@ -1,5 +1,6 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const { databaseName, connectionStringFor } = require('./db-config');
 
 const authMode = String(process.env.DB_AUTH || 'windows').toLowerCase();
 let sql;
@@ -16,17 +17,6 @@ function boolEnv(name, fallback) {
   const value = process.env[name];
   if (value == null || value === '') return fallback;
   return ['1', 'true', 'yes', 'sim'].includes(String(value).toLowerCase());
-}
-
-function connectionStringFor(database) {
-  const base = String(process.env.DB_CONNECTION_STRING || '').trim();
-  if (!base) return '';
-  if (!database) return base;
-  const destino = `Database=${database}`;
-  if (/;\s*Database\s*=/i.test(base) || /^\s*Database\s*=/i.test(base)) {
-    return base.replace(/(^|;)(\s*)Database\s*=\s*[^;]*/i, `$1$2${destino}`);
-  }
-  return base.endsWith(';') ? `${base}${destino};` : `${base};${destino};`;
 }
 
 function configFor(database) {
@@ -47,7 +37,7 @@ function configFor(database) {
 
   // Connection string completa (opcional). Necessária, por exemplo, para LocalDB,
   // que o driver msnodesqlv8 não alcança quando server/port são montados por partes.
-  const connectionString = connectionStringFor(database);
+  const connectionString = connectionStringFor(process.env.DB_CONNECTION_STRING, database);
   if (connectionString) {
     config.connectionString = connectionString;
     if (authMode === 'windows') {
@@ -452,10 +442,7 @@ async function warnDuplicateProductCodes(pool) {
 }
 
 async function initializeDatabase() {
-  const dbName = process.env.DB_NAME || 'FabricaPneus2';
-  if (!/^[A-Za-z0-9_ -]{1,128}$/.test(dbName)) {
-    throw new Error('DB_NAME contém caracteres não permitidos. Use letras, números, espaços, hífen ou sublinhado.');
-  }
+  const dbName = databaseName();
 
   const masterPool = await new sql.ConnectionPool(configFor('master')).connect();
   try {

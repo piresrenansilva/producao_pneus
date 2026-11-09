@@ -7,6 +7,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { sql, initializeDatabase, configFor } = require('./database');
+const { databaseName } = require('./db-config');
 
 const raiz = path.join(__dirname, '..');
 
@@ -90,10 +91,7 @@ async function gravarVersao(pool, versao) {
 // responsável por criar o banco, aplicar schema.sql, as migrações e os
 // scripts sql/*.sql (inclusive a procedure dbo.usp_RelatorioVendas).
 async function initializeDatabaseFast(onProgress = () => {}) {
-  const dbName = process.env.DB_NAME || 'FabricaPneus2';
-  if (!/^[A-Za-z0-9_ -]{1,128}$/.test(dbName)) {
-    throw new Error('DB_NAME contém caracteres não permitidos. Use letras, números, espaços, hífen ou sublinhado.');
-  }
+  const dbName = databaseName();
   const versao = await computeFingerprint();
 
   onProgress('Conectando ao SQL Server...');
