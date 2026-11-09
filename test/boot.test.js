@@ -25,6 +25,8 @@ test('porta única: 5090 é o padrão e é a URL mostrada', () => {
     assert.equal(displayUrl(resolvePort()), 'http://localhost:5090');
     assert.match(APP_VERSION, /boot5090/);
     assert.equal(resolvePort('7000'), 7000);
+    assert.equal(resolvePort('5090 # porta antiga'), 5090);
+    assert.equal(resolvePort(' 5090 '), 5090);
     assert.throws(() => resolvePort('abc'), /PORT inválida/);
     assert.throws(() => resolvePort('70000'), /PORT inválida/);
   } finally {

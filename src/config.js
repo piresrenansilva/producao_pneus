@@ -45,7 +45,10 @@ function applyLegacyPortMigration(envPath = path.join(__dirname, '..', '.env')) 
 
 function resolvePort(value = process.env.PORT) {
   if (value == null || String(value).trim() === '') return DEFAULT_PORT;
-  const port = Number(value);
+  const texto = String(value).trim();
+  // Aceita "5090", "5090  # comentário" etc. sem derrubar o servidor no boot.
+  const encontrado = /^(\d{1,5})(?!\d)/.exec(texto);
+  const port = encontrado ? Number(encontrado[1]) : Number.NaN;
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error(`PORT inválida: "${value}". Use um número entre 1 e 65535 (padrão ${DEFAULT_PORT}).`);
   }

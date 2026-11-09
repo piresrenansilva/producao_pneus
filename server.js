@@ -57,6 +57,7 @@ const {
 } = require('./src/operations');
 const { createOrderPdf, createCarcacaOrdemPdf, createCargaPdf } = require('./src/pdf');
 const { getSalesReport } = require('./src/reports');
+const { registrarDevRoutes, injetarFlags, isEnabled } = require('./src/dev-panel');
 
 if (!process.env.JWT_KEY) {
   if (process.env.NODE_ENV === 'production') {
@@ -91,27 +92,36 @@ function markStage(message) {
 
 // Preparação do banco em SEGUNDO PLANO: o HTTP já está de pé, a interface abre
 // na hora e as chamadas /api esperam (ou tentam de novo) até o pool existir.
+function registrarFalha(error) {
+  dbError = error;
+  lastFailureAt = Date.now();
+  dbInit = null;
+  markStage(`Falha ao preparar o banco: ${error.message}`);
+  console.error('Não foi possível preparar o banco de dados.');
+  console.error(error.stack || error.message);
+  if (error.number) console.error(`Código SQL Server: ${error.number}`);
+  return Promise.reject(error);
+}
+
+// Qualquer erro AQUI (arquivo novo ausente, driver msnodesqlv8 não instalado,
+// .env inválido...) precisa virar mensagem na tela, e NUNCA uma exceção não
+// tratada que fecha a janela do .bat sem deixar rastro.
 function prepareDatabase() {
   if (pool) return Promise.resolve(pool);
   if (dbError && Date.now() - lastFailureAt < 5000) return Promise.reject(dbError);
   if (!dbInit) {
     dbError = null;
-    dbInit = loadBootDatabase().initializeDatabaseFast(markStage)
-      .then((readyPool) => {
-        pool = readyPool;
-        markStage('Banco pronto — sistema liberado.');
-        return pool;
-      })
-      .catch((error) => {
-        dbError = error;
-        lastFailureAt = Date.now();
-        dbInit = null;
-        markStage(`Falha ao preparar o banco: ${error.message}`);
-        console.error('Não foi possível preparar o banco de dados.');
-        console.error(error.message);
-        if (error.number) console.error(`Código SQL Server: ${error.number}`);
-        throw error;
-      });
+    try {
+      dbInit = Promise.resolve(loadBootDatabase().initializeDatabaseFast(markStage))
+        .then((readyPool) => {
+          pool = readyPool;
+          markStage('Banco pronto — sistema liberado.');
+          return pool;
+        })
+        .catch(registrarFalha);
+    } catch (error) {
+      return registrarFalha(error);
+    }
   }
   return dbInit;
 }
@@ -122,18 +132,20 @@ app.use(express.json({ limit: '1mb' }));
 // Injeta a tela de boot no HTML sem precisar editar o wwwroot/index.html
 // (evita conflito com versões locais desse arquivo). O HTML é sempre
 // revalidado, então atualizações aparecem sem Ctrl+F5.
-let indexHtmlCache = null;
+let indexBaseCache = null;
 app.get(['/', '/index.html'], (req, res, next) => {
   try {
-    if (!indexHtmlCache || process.env.NODE_ENV === 'development') {
+    if (!indexBaseCache || process.env.NODE_ENV === 'development') {
       const original = fs.readFileSync(path.join(__dirname, 'wwwroot', 'index.html'), 'utf8');
       const injetado = '  <script src="/js/boot.js?v=20261102-boot5090"></script>\n';
-      indexHtmlCache = /<\/body>/i.test(original)
+      indexBaseCache = /<\/body>/i.test(original)
         ? original.replace(/<\/body>/i, `${injetado}</body>`)
         : original + injetado;
     }
+    // As flags são relidas a cada request: editar dev-flags.json + F5 já aplica,
+    // sem reiniciar o servidor.
     res.set('Cache-Control', 'no-cache');
-    res.type('html').send(indexHtmlCache);
+    res.type('html').send(injetarFlags(indexBaseCache));
   } catch (error) {
     next(error);
   }
@@ -148,6 +160,18 @@ app.use(express.static(path.join(__dirname, 'wwwroot'), {
     if (/\.(html?|js|css)$/i.test(filePath)) res.setHeader('Cache-Control', 'no-cache');
   }
 }));
+
+// Painel DEV: só localhost, e não depende do banco (útil para diagnosticar).
+registrarDevRoutes(app);
+
+// Módulo desligado no painel DEV: bloqueia ANTES do gate do banco e da autenticação.
+// Assim a resposta é 404 imediata mesmo se o SQL Server ainda não subiu.
+app.use('/api/relatorios/vendas', (req, res, next) => {
+  if (!isEnabled('relatorios')) {
+    return res.status(404).json({ detail: 'Módulo de relatórios desativado no painel DEV.' });
+  }
+  next();
+});
 
 app.get('/api/status', (req, res) => {
   res.set('Cache-Control', 'no-store');
@@ -269,6 +293,7 @@ app.get('/api/dados', asyncRoute(async (req, res) => {
 // Relatório calculado pela procedure dbo.usp_RelatorioVendas. A tela nunca acessa
 // o banco diretamente; o período é validado antes de ser enviado ao SQL Server.
 app.get('/api/relatorios/vendas', asyncRoute(async (req, res) => {
+  if (!isEnabled('relatorios')) throw notFound('Módulo de relatórios desativado no painel DEV.');
   res.json(await getSalesReport(pool, req.query));
 }));
 
@@ -466,12 +491,16 @@ async function start() {
     server.on('listening', () => {
       if (announced) return;
       announced = true;
-      announce();
-      prepareDatabase().catch(() => {});
-      waitForHttp(probe).then((ok) => {
-        if (ok) openBrowser(url);
-        else console.warn(`Não foi possível confirmar o servidor local. Abra manualmente ${url}`);
-      });
+      try {
+        announce();
+        prepareDatabase().catch(() => {});
+        waitForHttp(probe).then((ok) => {
+          if (ok) openBrowser(url);
+          else console.warn(`Não foi possível confirmar o servidor local. Abra manualmente ${url}`);
+        });
+      } catch (error) {
+        console.error('Falha ao iniciar a preparação do banco:', error.stack || error.message);
+      }
     });
 
     server.on('error', (error) => {
@@ -492,6 +521,7 @@ async function start() {
   // sistema: abre o navegador nela em vez de mostrar "não foi possível conectar".
   setTimeout(async () => {
     if (announced) return;
+    try {
     if (portInUse) {
       const existing = await waitForHttp(probe, 6);
       if (existing) {
@@ -505,6 +535,9 @@ async function start() {
     } else {
       console.error('Não foi possível iniciar o servidor HTTP. Veja as mensagens acima.');
       process.exitCode = 1;
+    }
+    } catch (error) {
+      console.error('Falha na verificação da porta:', error.stack || error.message);
     }
   }, 1200);
 }

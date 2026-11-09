@@ -1,0 +1,15 @@
+{
+  "painel": true,
+  "clientes": true,
+  "veiculos": true,
+  "produtos": true,
+  "servicos": true,
+  "carcacas": true,
+  "estoque": true,
+  "producao": true,
+  "vendas": true,
+  "cargas": true,
+  "financeiro": true,
+  "relatorios": false,
+  "condicoesPagamento": true
+}
