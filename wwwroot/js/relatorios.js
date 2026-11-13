@@ -2,7 +2,7 @@
 // Os totais desta tela vêm exclusivamente da procedure dbo.usp_RelatorioVendas.
 
 function dataLocal(ano, mes, dia) {
-  const pad = (valor) => String(valor).padStart(2, "0");
+  const pad = (valor) => String(valor).padStart(2, '0');
   return `${ano}-${pad(mes)}-${pad(dia)}`;
 }
 
@@ -21,14 +21,18 @@ function periodoMesAnterior() {
   const ultimoDiaAnterior = new Date(agora.getFullYear(), agora.getMonth(), 0);
   return {
     inicio: dataLocal(ultimoDiaAnterior.getFullYear(), ultimoDiaAnterior.getMonth() + 1, 1),
-    fim: dataLocal(ultimoDiaAnterior.getFullYear(), ultimoDiaAnterior.getMonth() + 1, ultimoDiaAnterior.getDate())
+    fim: dataLocal(
+      ultimoDiaAnterior.getFullYear(),
+      ultimoDiaAnterior.getMonth() + 1,
+      ultimoDiaAnterior.getDate()
+    )
   };
 }
 
-let relatorioFiltro = { ...periodoMesAtual(), vendedorId: "" };
+let relatorioFiltro = { ...periodoMesAtual(), vendedorId: '' };
 let relatorioVendas = null;
 let relatorioCarregando = false;
-let relatorioErro = "";
+let relatorioErro = '';
 
 function numeroRelatorio(valor) {
   return Number(valor) || 0;
@@ -38,8 +42,11 @@ function vendedoresRelatorio() {
   // Vendedores são entidades cujo tipoEntidadeId é 4. Não inferimos mais a
   // lista a partir dos nomes gravados nos pedidos, evitando duplicidades.
   return (db.clientes || [])
-    .filter((entidade) => Number(entidade.tipoEntidadeId) === 4 && String(entidade.status || "").toLowerCase() !== "inativo")
-    .sort((a, b) => String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR"));
+    .filter(
+      (entidade) =>
+        Number(entidade.tipoEntidadeId) === 4 && String(entidade.status || '').toLowerCase() !== 'inativo'
+    )
+    .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'));
 }
 
 function periodoRelatorioTexto() {
@@ -51,7 +58,9 @@ function linhasDiariasRelatorio(linhas) {
   if (!linhas.length) {
     return `<tr><td colspan="8" class="relatorio-vazio">Não houve vendas faturadas ou pagas no período selecionado.</td></tr>`;
   }
-  return linhas.map((linha) => `<tr>
+  return linhas
+    .map(
+      (linha) => `<tr>
     <td>${br(linha.data)}</td>
     <td class="num">${numeroRelatorio(linha.quantidadeVendas)}</td>
     <td class="num">${numeroRelatorio(linha.quantidadePneus)}</td>
@@ -60,20 +69,26 @@ function linhasDiariasRelatorio(linhas) {
     <td class="num">${money(linha.valorDesconto)}</td>
     <td class="num relatorio-valor-liquido">${money(linha.valorLiquido)}</td>
     <td class="num">${money(linha.ticketMedio)}</td>
-  </tr>`).join("");
+  </tr>`
+    )
+    .join('');
 }
 
 function tabelaVendedoresRelatorio(linhas) {
   if (!linhas.length) return `<p class="hint">Sem vendedores para exibir neste período.</p>`;
   return `<div class="table-wrap"><table class="relatorio-tabela-menor">
     <thead><tr><th>Vendedor</th><th class="num">Vendas</th><th class="num">Pneus</th><th class="num">Faturamento líquido</th><th class="num">Ticket médio</th></tr></thead>
-    <tbody>${linhas.map((linha) => `<tr>
-      <td>${escapeHtml(linha.vendedor || "Não informado")}</td>
+    <tbody>${linhas
+      .map(
+        (linha) => `<tr>
+      <td>${escapeHtml(linha.vendedor || 'Não informado')}</td>
       <td class="num">${numeroRelatorio(linha.quantidadeVendas)}</td>
       <td class="num">${numeroRelatorio(linha.quantidadePneus)}</td>
       <td class="num relatorio-valor-liquido">${money(linha.valorLiquido)}</td>
       <td class="num">${money(linha.ticketMedio)}</td>
-    </tr>`).join("")}</tbody>
+    </tr>`
+      )
+      .join('')}</tbody>
   </table></div>`;
 }
 
@@ -81,11 +96,15 @@ function tabelaFormasRelatorio(linhas) {
   if (!linhas.length) return `<p class="hint">Sem condições de pagamento para exibir neste período.</p>`;
   return `<div class="table-wrap"><table class="relatorio-tabela-menor">
     <thead><tr><th>Condição de pagamento</th><th class="num">Vendas</th><th class="num">Faturamento líquido</th></tr></thead>
-    <tbody>${linhas.map((linha) => `<tr>
-      <td>${escapeHtml(linha.formaPagamento || "Não informado")}</td>
+    <tbody>${linhas
+      .map(
+        (linha) => `<tr>
+      <td>${escapeHtml(linha.formaPagamento || 'Não informado')}</td>
       <td class="num">${numeroRelatorio(linha.quantidadeVendas)}</td>
       <td class="num relatorio-valor-liquido">${money(linha.valorLiquido)}</td>
-    </tr>`).join("")}</tbody>
+    </tr>`
+      )
+      .join('')}</tbody>
   </table></div>`;
 }
 
@@ -96,13 +115,17 @@ function conteudoRelatorioVendas() {
   if (relatorioErro) {
     return `<section class="card relatorio-estado"><p>${escapeHtml(relatorioErro)}</p><button type="button" class="btn" data-relatorio-tentar>Atualizar relatório</button></section>`;
   }
-  if (!relatorioVendas) return "";
+  if (!relatorioVendas) return '';
 
   const resumo = relatorioVendas.resumo || {};
   const diario = Array.isArray(relatorioVendas.diario) ? relatorioVendas.diario : [];
   const vendedores = Array.isArray(relatorioVendas.vendedores) ? relatorioVendas.vendedores : [];
-  const formasPagamento = Array.isArray(relatorioVendas.formasPagamento) ? relatorioVendas.formasPagamento : [];
-  const atualizando = relatorioCarregando ? `<span class="relatorio-atualizando" aria-live="polite">Atualizando...</span>` : "";
+  const formasPagamento = Array.isArray(relatorioVendas.formasPagamento)
+    ? relatorioVendas.formasPagamento
+    : [];
+  const atualizando = relatorioCarregando
+    ? `<span class="relatorio-atualizando" aria-live="polite">Atualizando...</span>`
+    : '';
 
   return `${atualizando}
     <div class="relatorio-kpis">
@@ -138,7 +161,7 @@ function viewRelatorios() {
         </div>
         <label>Data inicial<input id="relatorioInicio" type="date" required value="${escapeAttr(relatorioFiltro.inicio)}"></label>
         <label>Data final<input id="relatorioFim" type="date" required value="${escapeAttr(relatorioFiltro.fim)}"></label>
-        <label>Vendedor<select id="relatorioVendedor"><option value="">Todos os vendedores</option>${vendedores.map((vendedor) => `<option value="${escapeAttr(vendedor.id)}"${sameId(vendedor.id, relatorioFiltro.vendedorId) ? " selected" : ""}>${escapeHtml(vendedor.nome)}</option>`).join("")}</select></label>
+        <label>Vendedor<select id="relatorioVendedor"><option value="">Todos os vendedores</option>${vendedores.map((vendedor) => `<option value="${escapeAttr(vendedor.id)}"${sameId(vendedor.id, relatorioFiltro.vendedorId) ? ' selected' : ''}>${escapeHtml(vendedor.nome)}</option>`).join('')}</select></label>
         <button class="btn" type="submit">Atualizar</button>
       </form>
     </section>
@@ -148,20 +171,20 @@ function viewRelatorios() {
 async function carregarRelatorioVendas() {
   if (relatorioCarregando) return;
   relatorioCarregando = true;
-  relatorioErro = "";
-  if (page === "relatorios") render();
+  relatorioErro = '';
+  if (page === 'relatorios') render();
   try {
     const parametros = new URLSearchParams({
       inicio: relatorioFiltro.inicio,
       fim: relatorioFiltro.fim
     });
-    if (relatorioFiltro.vendedorId) parametros.set("vendedorId", relatorioFiltro.vendedorId);
+    if (relatorioFiltro.vendedorId) parametros.set('vendedorId', relatorioFiltro.vendedorId);
     relatorioVendas = await api(`/api/relatorios/vendas?${parametros.toString()}`);
   } catch (error) {
     relatorioErro = `Não foi possível carregar o relatório: ${error.message}`;
   } finally {
     relatorioCarregando = false;
-    if (page === "relatorios") render();
+    if (page === 'relatorios') render();
   }
 }
 
@@ -171,36 +194,43 @@ function iniciarRelatorioVendas() {
 
 function invalidarRelatorioVendas() {
   relatorioVendas = null;
-  relatorioErro = "";
+  relatorioErro = '';
 }
 
 function ligarRelatorios(view) {
-  const form = view.querySelector("#relatorioForm");
-  if (form) form.onsubmit = (evento) => {
-    evento.preventDefault();
-    const inicio = document.getElementById("relatorioInicio").value;
-    const fim = document.getElementById("relatorioFim").value;
-    const vendedorId = document.getElementById("relatorioVendedor").value;
-    if (!inicio || !fim) {
-      toast("Informe as duas datas do relatório.", "warn");
-      return;
-    }
-    if (inicio > fim) {
-      toast("A data inicial não pode ser posterior à data final.", "warn");
-      return;
-    }
-    relatorioFiltro = { inicio, fim, vendedorId };
-    carregarRelatorioVendas();
-  };
+  const form = view.querySelector('#relatorioForm');
+  if (form) {
+    form.onsubmit = (evento) => {
+      evento.preventDefault();
+      const inicio = document.getElementById('relatorioInicio').value;
+      const fim = document.getElementById('relatorioFim').value;
+      const vendedorId = document.getElementById('relatorioVendedor').value;
+      if (!inicio || !fim) {
+        toast('Informe as duas datas do relatório.', 'warn');
+        return;
+      }
+      if (inicio > fim) {
+        toast('A data inicial não pode ser posterior à data final.', 'warn');
+        return;
+      }
+      relatorioFiltro = { inicio, fim, vendedorId };
+      carregarRelatorioVendas();
+    };
+  }
 
-  view.querySelectorAll("[data-relatorio-periodo]").forEach((botao) => botao.onclick = () => {
-    const periodo = botao.dataset.relatorioPeriodo;
-    if (periodo === "hoje") relatorioFiltro = { ...relatorioFiltro, inicio: today(), fim: today() };
-    else if (periodo === "mes") relatorioFiltro = { ...relatorioFiltro, ...periodoMesAtual() };
-    else if (periodo === "mes-anterior") relatorioFiltro = { ...relatorioFiltro, ...periodoMesAnterior() };
-    carregarRelatorioVendas();
-  });
+  view.querySelectorAll('[data-relatorio-periodo]').forEach(
+    (botao) =>
+      (botao.onclick = () => {
+        const periodo = botao.dataset.relatorioPeriodo;
+        if (periodo === 'hoje') relatorioFiltro = { ...relatorioFiltro, inicio: today(), fim: today() };
+        else if (periodo === 'mes') relatorioFiltro = { ...relatorioFiltro, ...periodoMesAtual() };
+        else if (periodo === 'mes-anterior') {
+          relatorioFiltro = { ...relatorioFiltro, ...periodoMesAnterior() };
+        }
+        carregarRelatorioVendas();
+      })
+  );
 
-  const tentar = view.querySelector("[data-relatorio-tentar]");
+  const tentar = view.querySelector('[data-relatorio-tentar]');
   if (tentar) tentar.onclick = carregarRelatorioVendas;
 }

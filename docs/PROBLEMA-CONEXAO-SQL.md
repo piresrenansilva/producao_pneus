@@ -28,13 +28,13 @@ monta a string `Server=localhost,1433`. Daí a mensagem exata com `,1433`.
 
 O que o output já provou:
 
-| Achado | Significado |
-|---|---|
-| `Running MSSQL$SQLEXPRESS` **e** `Running MSSQLSERVER` | Você tem **duas instâncias** de SQL Server instaladas e rodando: a **padrão** (`MSSQLSERVER`, versão interna 17) e a **Express** (`SQLEXPRESS`, versão interna 16 = SQL Server 2022). |
-| `Stopped SQLBrowser` | **SQL Server Browser parado** → `DB_INSTANCE=SQLEXPRESS` **não vai funcionar** enquanto ele estiver parado, porque ninguém descobre a porta dinâmica da instância. |
-| Nenhuma porta **1433** em escuta | É exatamente a origem do `localhost,1433 / Servidor não encontrado`. Nenhuma das duas instâncias está atendendo em TCP na porta clássica. |
-| `1434` aparece em `Get-NetTCPConnection` com PID 5040 | Cuidado: 1434 do Browser é **UDP**, não TCP. Esse listener TCP 1434 é de **outro programa** (o Browser está parado). Não conte com ele. |
-| `sqlcmd -S localhost` e `-S localhost\SQLEXPRESS` → **erro de certificado SSL** | Notícia **boa**: é erro *depois* de a instância responder (o ODBC 18 vem com `Encrypt=Yes` por padrão e recusa o certificado autoassinado do SQL Server). Se fosse "servidor não encontrado", a mensagem seria outra. |
+| Achado                                                                          | Significado                                                                                                                                                                                                           |
+| ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Running MSSQL$SQLEXPRESS` **e** `Running MSSQLSERVER`                          | Você tem **duas instâncias** de SQL Server instaladas e rodando: a **padrão** (`MSSQLSERVER`, versão interna 17) e a **Express** (`SQLEXPRESS`, versão interna 16 = SQL Server 2022).                                 |
+| `Stopped SQLBrowser`                                                            | **SQL Server Browser parado** → `DB_INSTANCE=SQLEXPRESS` **não vai funcionar** enquanto ele estiver parado, porque ninguém descobre a porta dinâmica da instância.                                                    |
+| Nenhuma porta **1433** em escuta                                                | É exatamente a origem do `localhost,1433 / Servidor não encontrado`. Nenhuma das duas instâncias está atendendo em TCP na porta clássica.                                                                             |
+| `1434` aparece em `Get-NetTCPConnection` com PID 5040                           | Cuidado: 1434 do Browser é **UDP**, não TCP. Esse listener TCP 1434 é de **outro programa** (o Browser está parado). Não conte com ele.                                                                               |
+| `sqlcmd -S localhost` e `-S localhost\SQLEXPRESS` → **erro de certificado SSL** | Notícia **boa**: é erro _depois_ de a instância responder (o ODBC 18 vem com `Encrypt=Yes` por padrão e recusa o certificado autoassinado do SQL Server). Se fosse "servidor não encontrado", a mensagem seria outra. |
 
 **Conclusão:** o SQL Server responde localmente (memória compartilhada/named pipes), mas **não está escutando em TCP**. O seu sistema falha antes disso porque o `src/database.js` monta a string **com porta fixa** (`Server=localhost,1433`), o que força TCP — e TCP não está atendendo.
 
@@ -47,12 +47,12 @@ O que o output já provou:
    sqlcmd -S localhost\SQLEXPRESS -E -C -Q "SELECT @@SERVERNAME AS instancia; SELECT name FROM sys.databases"
    ```
 
-2. Abra o **SQL Server Configuration Manager** → *Configuração de Rede do SQL Server* →
-   *Protocolos de <instância escolhida>* → **TCP/IP** → *Habilitado = **Sim***.
-3. Em **Endereços IP → IPAll**: *Portas Dinâmicas TCP* = **vazio**, *Porta TCP* = **1433**
+2. Abra o **SQL Server Configuration Manager** → _Configuração de Rede do SQL Server_ →
+   _Protocolos de <instância escolhida>_ → **TCP/IP** → _Habilitado = **Sim**_.
+3. Em **Endereços IP → IPAll**: _Portas Dinâmicas TCP_ = **vazio**, _Porta TCP_ = **1433**
    (se for a instância padrão) ou **14330** (se for a SQLEXPRESS — as duas **não** podem usar 1433).
 4. `services.msc` → `SQL Server (SQLEXPRESS)` (ou `SQL Server (MSSQLSERVER)`) → **Reiniciar**.
-   Opcional: `SQL Server Browser` → início **Automático** → *Iniciar*.
+   Opcional: `SQL Server Browser` → início **Automático** → _Iniciar_.
 5. `.env`:
 
    ```env
@@ -61,7 +61,9 @@ O que o output já provou:
    DB_INSTANCE=
    DB_PORT=1433
    ```
+
    ou, na SQLEXPRESS em porta fixa:
+
    ```env
    DB_SERVER=localhost
    DB_INSTANCE=
@@ -92,13 +94,13 @@ DB_CONNECTION_STRING=Driver={ODBC Driver 18 for SQL Server};Server=localhost\SQL
 Troque `localhost\SQLEXPRESS` por `localhost` se os dados estiverem na instância padrão.
 Se o driver reclamar de protocolo, acrescente `;Network Library=dbmslpcn` no fim.
 
-O script `diagnostico-sql.js` (v2) testa **exatamente essas variantes** e, se alguma conectar,
+O script `scripts/diagnostico-sql.js` (v2) testa **exatamente essas variantes** e, se alguma conectar,
 imprime o bloco de `.env` pronto — inclusive a `DB_CONNECTION_STRING` que funcionou.
 
 ### Rode de novo
 
 ```bat
-node diagnostico-sql.js
+node scripts/diagnostico-sql.js
 ```
 
 Agora ele mostra, por instância: **TcpEnabled**, porta fixa, porta dinâmica, as **portas reais de
@@ -113,7 +115,7 @@ Coloquei no projeto um script que **não altera nada** e testa sozinho o que est
 Na pasta do projeto (a mesma do `server.js`):
 
 ```bat
-node diagnostico-sql.js
+node scripts/diagnostico-sql.js
 ```
 
 Ele mostra:
@@ -159,13 +161,13 @@ PORT=5090
 
 Regras que o código aplica:
 
-| Situação | Configuração |
-|---|---|
-| Instância padrão | `DB_SERVER=localhost`, `DB_INSTANCE=` vazio, `DB_PORT=` vazio (usa 1433) |
-| Instância nomeada (Express) | `DB_INSTANCE=SQLEXPRESS`, `DB_PORT=` **vazio** (o driver resolve pelo SQL Browser) |
-| Instância nomeada em porta fixa | `DB_INSTANCE=SQLEXPRESS` **e** `DB_PORT=1433` (ou a porta que você fixou) |
-| LocalDB | `DB_CONNECTION_STRING=Driver={ODBC Driver 18 for SQL Server};Server=(localdb)\MSSQLLocalDB;Trusted_Connection=Yes;Encrypt=No;` |
-| Outro PC / outro host | `DB_SERVER=NOME-DA-MAQUINA` ou `IP`, e lá o TCP/IP precisa estar habilitado e o firewall liberado |
+| Situação                        | Configuração                                                                                                                   |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Instância padrão                | `DB_SERVER=localhost`, `DB_INSTANCE=` vazio, `DB_PORT=` vazio (usa 1433)                                                       |
+| Instância nomeada (Express)     | `DB_INSTANCE=SQLEXPRESS`, `DB_PORT=` **vazio** (o driver resolve pelo SQL Browser)                                             |
+| Instância nomeada em porta fixa | `DB_INSTANCE=SQLEXPRESS` **e** `DB_PORT=1433` (ou a porta que você fixou)                                                      |
+| LocalDB                         | `DB_CONNECTION_STRING=Driver={ODBC Driver 18 for SQL Server};Server=(localdb)\MSSQLLocalDB;Trusted_Connection=Yes;Encrypt=No;` |
+| Outro PC / outro host           | `DB_SERVER=NOME-DA-MAQUINA` ou `IP`, e lá o TCP/IP precisa estar habilitado e o firewall liberado                              |
 
 ⚠️ Tenha cuidado: `DB_INSTANCE` **não** é o nome do serviço (`MSSQL$SQLEXPRESS`), é só `SQLEXPRESS`.
 Nunca coloque `DB_SERVER=localhost\SQLEXPRESS` — o código já compõe `servidor\instância`.
@@ -174,20 +176,20 @@ Nunca coloque `DB_SERVER=localhost\SQLEXPRESS` — o código já compõe `servid
 
 ## 3) Checklist de instalação (na ordem)
 
-1. **Serviço iniciado**: `services.msc` → `SQL Server (SQLEXPRESS)` → *Iniciar*;
-   e `SQL Server Browser` → tipo de inicialização **Automático** → *Iniciar*
+1. **Serviço iniciado**: `services.msc` → `SQL Server (SQLEXPRESS)` → _Iniciar_;
+   e `SQL Server Browser` → tipo de inicialização **Automático** → _Iniciar_
    (sem o Browser, conexão por instância nomeada não resolve a porta).
 2. **TCP/IP habilitado**: SQL Server Configuration Manager →
-   *Configuração de Rede do SQL Server* → *Protocolos de SQLEXPRESS* → **TCP/IP → Habilitado** →
+   _Configuração de Rede do SQL Server_ → _Protocolos de SQLEXPRESS_ → **TCP/IP → Habilitado** →
    clique com o botão direito no serviço → **Reiniciar**.
-   Em *Endereços IP* → **IPAll**: deixe *Portas Dinâmicas TCP* vazio e *Porta TCP* = `1433`
+   Em _Endereços IP_ → **IPAll**: deixe _Portas Dinâmicas TCP_ vazio e _Porta TCP_ = `1433`
    se quiser fixar a porta (aí pode usar `DB_PORT=1433` e dispensar o Browser).
 3. **Autenticação integrada**: seu usuário do Windows precisa existir como login no SQL Server
    com permissão para **criar banco** (o sistema tenta `CREATE DATABASE` para o nome definido em `DB_NAME` no primeiro boot).
    Instalações do Express com “usuários do Windows” já vêm assim; se você usa SQL Server em outro
    computador, costuma ser mais fácil usar `DB_AUTH=sql`, `DB_USER=sa` e `DB_PASSWORD=...`
-   (com *Autenticação de Modo Misto* habilitada).
-4. **Driver ODBC**: precisa do *Microsoft ODBC Driver 18 for SQL Server* instalado
+   (com _Autenticação de Modo Misto_ habilitada).
+4. **Driver ODBC**: precisa do _Microsoft ODBC Driver 18 for SQL Server_ instalado
    (Windows atualizado, 64-bit). Confira: `Get-OdbcDriver | ? Name -like '*SQL Server*'`.
 5. **Firewall**: em `localhost` não atrapalha; só ao acessar de outra máquina
    (liberar o `sqlservr.exe` ou a porta 1433 em redes privadas).
@@ -221,14 +223,15 @@ Se o `sqlcmd` conecta com `localhost\SQLEXPRESS` e o sistema não conecta, o pro
    endereço é montado a partir da porta realmente em uso:
 
    ```js
-   const port = resolvePort();           // padrão 5090
-   const url = displayUrl(port);         // http://localhost:5090
-   app.listen(port, '127.0.0.1');        // e também em ::1
+   const port = resolvePort(); // padrão 5090
+   const url = displayUrl(port); // http://localhost:5090
+   app.listen(port, '127.0.0.1'); // e também em ::1
    // no callback de listen: confirma por HTTP e só então openBrowser(url)
    ```
 
    Se um `.env` antigo ainda tiver a porta legada, a primeira execução migra o
    valor para `5090` e avisa no console (`ALLOW_LEGACY_PORT=true` desativa isso).
+
 3. **O boot parecia travado.** O HTTP só subia depois que ~70 comandos SQL
    terminavam. Agora o servidor e a interface sobem na hora, o banco é preparado
    em segundo plano com progresso na tela, e `schema.sql` + migrações só são
@@ -238,13 +241,13 @@ Se o `sqlcmd` conecta com `localhost\SQLEXPRESS` e o sistema não conecta, o pro
 
 ## 5) Depois que a conexão funcionar, os próximos erros comuns
 
-| Mensagem | Causa / solução |
-|---|---|
-| `Login failed for user 'NT AUTHORITY\...'` | Seu usuário Windows não tem login no SQL Server → crie o login ou use `DB_AUTH=sql`. |
-| `CREATE DATABASE permission denied` | A conta não pode criar banco → crie o banco indicado em `DB_NAME` manualmente como admin (não apague depois). |
-| `Could not open a connection... SSL Provider: certificate chain` | `DB_ENCRYPT=true` sem CA válida → use `DB_TRUST_SERVER_CERT=true` (padrão do projeto) ou `DB_ENCRYPT=false`. |
-| `Cannot find module 'msnodesqlv8'` | `npm install` incompleto (a dependência é opcional e compila nativo). Rode `npm install` novamente na pasta com o Node 22+; se falhar, use `DB_AUTH=sql`. |
-| `A porta 5090 já está em uso` | Já existe uma instância do sistema aberta: o servidor detecta, avisa e abre o navegador na instância existente. Se for outro programa, feche-o ou altere `PORT` no `.env`. |
+| Mensagem                                                         | Causa / solução                                                                                                                                                            |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Login failed for user 'NT AUTHORITY\...'`                       | Seu usuário Windows não tem login no SQL Server → crie o login ou use `DB_AUTH=sql`.                                                                                       |
+| `CREATE DATABASE permission denied`                              | A conta não pode criar banco → crie o banco indicado em `DB_NAME` manualmente como admin (não apague depois).                                                              |
+| `Could not open a connection... SSL Provider: certificate chain` | `DB_ENCRYPT=true` sem CA válida → use `DB_TRUST_SERVER_CERT=true` (padrão do projeto) ou `DB_ENCRYPT=false`.                                                               |
+| `Cannot find module 'msnodesqlv8'`                               | `npm install` incompleto (a dependência é opcional e compila nativo). Rode `npm install` novamente na pasta com o Node 22+; se falhar, use `DB_AUTH=sql`.                  |
+| `A porta 5090 já está em uso`                                    | Já existe uma instância do sistema aberta: o servidor detecta, avisa e abre o navegador na instância existente. Se for outro programa, feche-o ou altere `PORT` no `.env`. |
 
 ---
 
@@ -268,8 +271,8 @@ caracteres especiais passam a funcionar sem gambiarra.
 
 Arquivos entregues junto deste texto:
 
-| Arquivo | Para que serve |
-|---|---|
-| `diagnostico-sql.js` | diagnóstico + teste de conexão + sugestão de `.env` (execução: `node diagnostico-sql.js`) |
-| `.env.example` | modelo de configuração para versionar no repositório |
-| `src/database.js` | já com suporte a `DB_CONNECTION_STRING` |
+| Arquivo                      | Para que serve                                                                                    |
+| ---------------------------- | ------------------------------------------------------------------------------------------------- |
+| `scripts/diagnostico-sql.js` | diagnóstico + teste de conexão + sugestão de `.env` (execução: `node scripts/diagnostico-sql.js`) |
+| `.env.example`               | modelo de configuração para versionar no repositório                                              |
+| `src/database.js`            | já com suporte a `DB_CONNECTION_STRING`                                                           |

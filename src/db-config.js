@@ -8,7 +8,9 @@ function databaseName(env = process.env) {
   }
   const name = String(value);
   if (!/^[A-Za-z0-9_ -]{1,128}$/.test(name)) {
-    throw new Error('DB_NAME contém caracteres não permitidos. Use letras, números, espaços, hífen ou sublinhado.');
+    throw new Error(
+      'DB_NAME contém caracteres não permitidos. Use letras, números, espaços, hífen ou sublinhado.'
+    );
   }
   return name;
 }

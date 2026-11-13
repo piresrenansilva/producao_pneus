@@ -47,15 +47,17 @@ function createToken(username) {
   const issuer = process.env.JWT_ISSUER || 'FabricaPneus';
   const audience = process.env.JWT_AUDIENCE || 'FabricaPneusApp';
   const header = base64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
-  const payload = base64url(JSON.stringify({
-    sub: username,
-    name: username,
-    role: 'Admin',
-    iss: issuer,
-    aud: audience,
-    iat: now,
-    exp: now + Math.floor(minutes * 60)
-  }));
+  const payload = base64url(
+    JSON.stringify({
+      sub: username,
+      name: username,
+      role: 'Admin',
+      iss: issuer,
+      aud: audience,
+      iat: now,
+      exp: now + Math.floor(minutes * 60)
+    })
+  );
   const unsigned = `${header}.${payload}`;
   const signature = crypto.createHmac('sha256', key).update(unsigned).digest('base64url');
   return `${unsigned}.${signature}`;

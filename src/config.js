@@ -39,7 +39,9 @@ function applyLegacyPortMigration(envPath = path.join(__dirname, '..', '.env')) 
   } catch (error) {
     console.warn(`[config] Não foi possível atualizar o .env automaticamente: ${error.message}`);
   }
-  console.warn(`[config] PORT=${LEGACY_PORT} é a porta antiga. Usando ${DEFAULT_PORT}${reescrito ? ' e atualizando o .env' : ' (ajuste o .env manualmente)'}.`);
+  console.warn(
+    `[config] PORT=${LEGACY_PORT} é a porta antiga. Usando ${DEFAULT_PORT}${reescrito ? ' e atualizando o .env' : ' (ajuste o .env manualmente)'}.`
+  );
   return true;
 }
 
@@ -67,7 +69,9 @@ function listenAddresses(value = process.env.HOST) {
 }
 
 function isLoopbackOnly(addresses) {
-  return addresses.every((address) => address === '127.0.0.1' || address === '::1' || address === 'localhost');
+  return addresses.every(
+    (address) => address === '127.0.0.1' || address === '::1' || address === 'localhost'
+  );
 }
 
 function displayUrl(port) {

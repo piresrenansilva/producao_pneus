@@ -56,10 +56,12 @@ function computeFingerprintFrom(sqlFiles, databaseSource) {
 
 async function computeFingerprint() {
   const caminhos = await sqlVersionFiles();
-  const sqlFiles = await Promise.all(caminhos.map(async (caminho) => ({
-    nome: path.relative(raiz, caminho).replace(/\\/g, '/'),
-    conteudo: await fs.readFile(caminho, 'utf8')
-  })));
+  const sqlFiles = await Promise.all(
+    caminhos.map(async (caminho) => ({
+      nome: path.relative(raiz, caminho).replace(/\\/g, '/'),
+      conteudo: await fs.readFile(caminho, 'utf8')
+    }))
+  );
   const databaseSource = await fs.readFile(path.join(__dirname, 'database.js'), 'utf8');
   return computeFingerprintFrom(sqlFiles, databaseSource);
 }
@@ -68,7 +70,9 @@ function isMissingDatabaseError(error) {
   const code = Number(error?.number ?? error?.code);
   if (code === 4060 || code === 911) return true;
   const message = String(error?.message || '');
-  return /cannot open database|database[^\n]*does not exist|não é possível abrir o banco|banco de dados[^\n]*não existe|invalid database/i.test(message);
+  return /cannot open database|database[^\n]*does not exist|não é possível abrir o banco|banco de dados[^\n]*não existe|invalid database/i.test(
+    message
+  );
 }
 
 async function openPool(database) {

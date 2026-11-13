@@ -1,90 +1,100 @@
 // Um produto é considerado carcaça quando a categoria, sem acentos, é "carcaça(s)".
 function ehCategoriaCarcaca(categoria) {
-  const texto = String(categoria || "")
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
+  const texto = String(categoria || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
     .trim()
-    .toLocaleLowerCase("pt-BR");
-  return texto === "carcaca" || texto === "carcacas";
+    .toLocaleLowerCase('pt-BR');
+  return texto === 'carcaca' || texto === 'carcacas';
 }
 
-function field(name, label, type, extra = "") {
-  const wide = type === "textarea" ? " full" : "";
+function field(name, label, type, extra = '') {
+  const wide = type === 'textarea' ? ' full' : '';
   const rand = Math.random().toString(36).slice(2, 8);
-  const fakeName = type === "select" ? name : `f_${rand}`;
-  const auto = type !== "select" && type !== "textarea"
-    ? 'autocomplete="new-password" autocorrect="off" spellcheck="false" data-lpignore="true"'
-    : "";
-  const control = type === "textarea"
-    ? `<textarea name="${fakeName}" data-realname="${name}" ${extra} autocomplete="off"></textarea>`
-    : type === "select"
-      ? `<select name="${name}" ${extra}></select>`
-      : `<input name="${fakeName}" data-realname="${name}" type="${type}" ${auto} ${extra} />`;
+  const fakeName = type === 'select' ? name : `f_${rand}`;
+  const auto =
+    type !== 'select' && type !== 'textarea'
+      ? 'autocomplete="new-password" autocorrect="off" spellcheck="false" data-lpignore="true"'
+      : '';
+  const control =
+    type === 'textarea'
+      ? `<textarea name="${fakeName}" data-realname="${name}" ${extra} autocomplete="off"></textarea>`
+      : type === 'select'
+        ? `<select name="${name}" ${extra}></select>`
+        : `<input name="${fakeName}" data-realname="${name}" type="${type}" ${auto} ${extra} />`;
   return `<label class="${wide}">${label}${control}</label>`;
 }
 
 const FORMS = {
-  clientes: () => [
-    field("nome", "Nome / Razão social", "text", "required"),
-    field("tipoEntidadeId", "Tipo", "select", "required"),
-    `<label>CPF / CNPJ<div style="display:flex;gap:6px;align-items:center"><input name="f_doc" data-realname="documento" type="text" autocomplete="new-password" style="flex:1" data-lpignore="true" /><button type="button" class="btn small" id="btnBuscarCnpj">Buscar</button></div></label>`,
-    field("telefone", "Telefone", "tel", "placeholder=\"(XX) 9XXXX-XXXX\" maxlength=\"15\""),
-    field("email", "E-mail", "email"),
-    field("limiteCredito", "Limite de crédito", "text", "class='preco-mask'"),
-    `<label>CEP<div style="display:flex;gap:6px;align-items:center"><input name="f_cep" data-realname="cep" type="text" autocomplete="new-password" style="flex:1" data-lpignore="true" /><button type="button" class="btn small" id="btnBuscarCep">Buscar</button></div></label>`,
-    field("endereco", "Endereço", "text"),
-    field("numero", "Número", "text"),
-    field("complemento", "Complemento", "text"),
-    field("bairro", "Bairro", "text"),
-    field("cidade", "Cidade", "text"),
-    field("estado", "Estado", "text", "maxlength='2'"),
-    field("status", "Status", "select"),
-    field("obs", "Observações", "textarea")
-  ].join(""),
-  produtos: () => [
-    field("produtoId", "Código do produto", "text", "required maxlength='60'"), field("nome", "Nome", "text", "required"),
-    field("categoriaId", "Categoria", "select", "required"),
-    field("modelo", "Modelo", "text"),
-    field("medida", "Medida", "text"),
-    field("unidade", "Unidade (ex.: un, pneu)", "text"), field("preco", "Preço de venda", "text", "required class='preco-mask'"),
-    field("custo", "Custo unitário", "text", "required class='preco-mask'"),
-    field("status", "Status", "select"),
-    field("obs", "Observações", "textarea")
-  ].join(""),
-  veiculos: () => [
-    field("clienteId", "Entidade", "select", "required"),
-    field("marca", "Marca", "text"),
-    field("modelo", "Modelo", "text", "required"),
-    field("ano", "Ano", "text"),
-    field("placa", "Placa", "text"),
-    field("medidaPneu", "Medida do pneu", "text"),
-    field("status", "Status", "select")
-  ].join(""),
-  servicos: () => [
-    field("nome", "Nome do serviço", "text", "required"),
-    field("descricao", "Descrição", "text"),
-    field("preco", "Preço", "text", "required class='preco-mask'"),
-    field("status", "Status", "select")
-  ].join(""),
-  carcacas: () => [
-    field("medida", "Medida", "text", "required"),
-    field("qtd", "Quantidade", "number", "required min='0' step='1'"),
-    field("valorUnitario", "Valor unitário de entrada (R$)", "text", "required class='preco-mask'"),
-    field("status", "Status", "select", "required"),
-    `<label class="full carcaca-valor-total">Valor total (quantidade × valor unitário)<output id="valorTotalCarcaca" aria-live="polite">R$ 0,00</output></label>`
-  ].join(""),
-  carcacaOrdens: () => [
-    `<div class="full apontamento-grade">
+  clientes: () =>
+    [
+      field('nome', 'Nome / Razão social', 'text', 'required'),
+      field('tipoEntidadeId', 'Tipo', 'select', 'required'),
+      `<label>CPF / CNPJ<div style="display:flex;gap:6px;align-items:center"><input name="f_doc" data-realname="documento" type="text" autocomplete="new-password" style="flex:1" data-lpignore="true" /><button type="button" class="btn small" id="btnBuscarCnpj">Buscar</button></div></label>`,
+      field('telefone', 'Telefone', 'tel', 'placeholder="(XX) 9XXXX-XXXX" maxlength="15"'),
+      field('email', 'E-mail', 'email'),
+      field('limiteCredito', 'Limite de crédito', 'text', "class='preco-mask'"),
+      `<label>CEP<div style="display:flex;gap:6px;align-items:center"><input name="f_cep" data-realname="cep" type="text" autocomplete="new-password" style="flex:1" data-lpignore="true" /><button type="button" class="btn small" id="btnBuscarCep">Buscar</button></div></label>`,
+      field('endereco', 'Endereço', 'text'),
+      field('numero', 'Número', 'text'),
+      field('complemento', 'Complemento', 'text'),
+      field('bairro', 'Bairro', 'text'),
+      field('cidade', 'Cidade', 'text'),
+      field('estado', 'Estado', 'text', "maxlength='2'"),
+      field('status', 'Status', 'select'),
+      field('obs', 'Observações', 'textarea')
+    ].join(''),
+  produtos: () =>
+    [
+      field('produtoId', 'Código do produto', 'text', "required maxlength='60'"),
+      field('nome', 'Nome', 'text', 'required'),
+      field('categoriaId', 'Categoria', 'select', 'required'),
+      field('modelo', 'Modelo', 'text'),
+      field('medida', 'Medida', 'text'),
+      field('unidade', 'Unidade (ex.: un, pneu)', 'text'),
+      field('preco', 'Preço de venda', 'text', "required class='preco-mask'"),
+      field('custo', 'Custo unitário', 'text', "required class='preco-mask'"),
+      field('status', 'Status', 'select'),
+      field('obs', 'Observações', 'textarea')
+    ].join(''),
+  veiculos: () =>
+    [
+      field('clienteId', 'Entidade', 'select', 'required'),
+      field('marca', 'Marca', 'text'),
+      field('modelo', 'Modelo', 'text', 'required'),
+      field('ano', 'Ano', 'text'),
+      field('placa', 'Placa', 'text'),
+      field('medidaPneu', 'Medida do pneu', 'text'),
+      field('status', 'Status', 'select')
+    ].join(''),
+  servicos: () =>
+    [
+      field('nome', 'Nome do serviço', 'text', 'required'),
+      field('descricao', 'Descrição', 'text'),
+      field('preco', 'Preço', 'text', "required class='preco-mask'"),
+      field('status', 'Status', 'select')
+    ].join(''),
+  carcacas: () =>
+    [
+      field('medida', 'Medida', 'text', 'required'),
+      field('qtd', 'Quantidade', 'number', "required min='0' step='1'"),
+      field('valorUnitario', 'Valor unitário de entrada (R$)', 'text', "required class='preco-mask'"),
+      field('status', 'Status', 'select', 'required'),
+      `<label class="full carcaca-valor-total">Valor total (quantidade × valor unitário)<output id="valorTotalCarcaca" aria-live="polite">R$ 0,00</output></label>`
+    ].join(''),
+  carcacaOrdens: () =>
+    [
+      `<div class="full apontamento-grade">
       <div class="grid apontamento-coluna">
-        ${field("data", "Data", "date", "required")}
-        ${field("dono", "Dono / fornecedor", "text")}
-        ${field("origem", "Origem", "select")}
-        ${field("status", "Status", "select")}
+        ${field('data', 'Data', 'date', 'required')}
+        ${field('dono', 'Dono / fornecedor', 'text')}
+        ${field('origem', 'Origem', 'select')}
+        ${field('status', 'Status', 'select')}
         <label class="full">Buscar carcaça (produtos da categoria Carcaça)
           <input id="buscaCarcacaApontamento" type="search" placeholder="Digite ao menos 2 letras: nome, medida ou código" autocomplete="off">
         </label>
         <div class="full apontamento-resultados" id="carcacaApontamentoResultados"></div>
-        ${field("obs", "Observações", "textarea")}
+        ${field('obs', 'Observações', 'textarea')}
       </div>
       <aside class="apontamento-lateral" aria-label="Carcaças selecionadas para o apontamento">
         <h3 class="apontamento-lateral-titulo">Carcaças do apontamento<small id="apontamentoResumoUnidades"></small></h3>
@@ -92,31 +102,39 @@ const FORMS = {
         <div class="apontamento-total-geral"><span>Total do apontamento</span><output id="totalApontamentoCarcacas" aria-live="polite">R$ 0,00</output></div>
       </aside>
     </div>`
-  ].join(""),
-  estoque: () => [
-    field("produtoId", "Código do produto", "text", "required"), field("item", "Descrição", "text", "required"),
-    field("medida", "Medida", "text"),
-    field("qtd", "Quantidade", "number", "required"), field("minimo", "Mínimo", "number", "required")
-  ].join(""),
-  producao: () => [
-    field("data", "Data", "date", "required"), field("turno", "Turno", "select"),
-    field("medida", "Medida", "select", "required"), field("qtd", "Pneus produzidos", "number", "required"),
-    field("operador", "Operador", "select"), field("status", "Status", "select")
-  ].join(""),
-  cargas: () => [
-    `<div class="full apontamento-grade">
+    ].join(''),
+  estoque: () =>
+    [
+      field('produtoId', 'Código do produto', 'text', 'required'),
+      field('item', 'Descrição', 'text', 'required'),
+      field('medida', 'Medida', 'text'),
+      field('qtd', 'Quantidade', 'number', 'required'),
+      field('minimo', 'Mínimo', 'number', 'required')
+    ].join(''),
+  producao: () =>
+    [
+      field('data', 'Data', 'date', 'required'),
+      field('turno', 'Turno', 'select'),
+      field('medida', 'Medida', 'select', 'required'),
+      field('qtd', 'Pneus produzidos', 'number', 'required'),
+      field('operador', 'Operador', 'select'),
+      field('status', 'Status', 'select')
+    ].join(''),
+  cargas: () =>
+    [
+      `<div class="full apontamento-grade">
       <div class="grid apontamento-coluna">
-        ${field("tipo", "Tipo", "select", "required")}
-        ${field("data", "Data", "date", "required")}
+        ${field('tipo', 'Tipo', 'select', 'required')}
+        ${field('data', 'Data', 'date', 'required')}
         <label class="full carga-pedido-campo">Venda / número do pedido
           <input id="buscaPedidoCarga" type="search" placeholder="Digite ao menos 3 números do pedido" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="sugestoesPedidoCarga" aria-expanded="false">
           <div class="carga-pedido-sugestoes" id="sugestoesPedidoCarga" role="listbox" hidden></div>
         </label>
         <select name="pedidoId" id="pedidoIdCarga" hidden></select>
         <div class="full carga-venda-preview" id="cargaVendaPreview" aria-live="polite"><p class="hint">Digite 3 ou mais números e escolha uma sugestão para ver o cliente e o total de peças. O vínculo é opcional.</p></div>
-        ${field("motorista", "Motorista (nome)", "text")}
-        ${field("funcionario", "Funcionário", "select")}
-        ${field("status", "Status", "select")}
+        ${field('motorista', 'Motorista (nome)', 'text')}
+        ${field('funcionario', 'Funcionário', 'select')}
+        ${field('status', 'Status', 'select')}
         <label class="full">Buscar produto
           <input id="buscaProdutoCarga" type="search" placeholder="Digite ao menos 2 letras: nome, código, modelo ou medida" autocomplete="off">
         </label>
@@ -130,11 +148,12 @@ const FORMS = {
         <div class="apontamento-total-geral carga-total-valor"><span>Valor total</span><output id="totalValorCarga" aria-live="polite">R$ 0,00</output></div>
       </aside>
     </div>`
-  ].join(""),
-  lancamentos: () => [
-    field("tipo", "Tipo", "select", "required"),
-    field("categoriaId", "Categoria", "select", "required"),
-    `<label class="full fin-entidade-campo">Entidade / favorecido
+    ].join(''),
+  lancamentos: () =>
+    [
+      field('tipo', 'Tipo', 'select', 'required'),
+      field('categoriaId', 'Categoria', 'select', 'required'),
+      `<label class="full fin-entidade-campo">Entidade / favorecido
       <div class="fin-entidade-busca">
       <input name="pessoa" id="finPessoa" type="search" maxlength="150" placeholder="Digite ao menos 3 letras para buscar (ou escreva o favorecido, ex.: COPEL)" autocomplete="off" spellcheck="false" data-lpignore="true" role="combobox" aria-autocomplete="list" aria-controls="finEntidadeSugestoes" aria-expanded="false">
       <div class="carga-pedido-sugestoes" id="finEntidadeSugestoes" role="listbox" hidden></div>
@@ -142,49 +161,74 @@ const FORMS = {
       <small class="hint" id="finEntidadeInfo"></small>
     </label>
     <input type="hidden" name="entidadeId" id="finEntidadeId">`,
-    field("descricao", "Descrição", "text", "maxlength='200' placeholder='Ex.: Parcela 1/3, vale, conta de luz de outubro'"),
-    field("documento", "Nº do boleto / documento", "text", "maxlength='100'"),
-    field("valor", "Valor", "text", "required class='preco-mask'"),
-    field("emissao", "Emissão", "date"),
-    field("vencimento", "Vencimento", "date", "required"),
-    field("status", "Situação", "select", "required"),
-    field("pagamento", "Data do pagamento", "date"),
-    field("condicaoPagamentoId", "Forma de pagamento", "select"),
-    `<p class="full hint fin-origem-info" id="finOrigemInfo" hidden></p>`,
-    field("obs", "Observações", "textarea", "maxlength='500'")
-  ].join(""),
-  condicoesPagamento: () => [
-    field("Descricao", "Descrição", "text", "required maxlength='100' placeholder='Ex.: Boleto 30/60/90'"),
-    field("Tipo", "Tipo (meio de pagamento)", "select", "required"),
-    field("QuantidadeParcelas", "Quantidade de parcelas", "number", "required min='1' max='120' step='1'"),
-    field("PrazoMedio", "Prazo médio (dias)", "number", "required min='0' max='3650' step='1'"),
-    field("Status", "Status", "select", "required"),
-    `<div class="full condicao-previa" aria-live="polite"><span>Vencimentos</span><strong id="condicaoPrevia">À vista</strong><small class="hint" id="condicaoPreviaDica"></small></div>`
-  ].join("")
+      field(
+        'descricao',
+        'Descrição',
+        'text',
+        "maxlength='200' placeholder='Ex.: Parcela 1/3, vale, conta de luz de outubro'"
+      ),
+      field('documento', 'Nº do boleto / documento', 'text', "maxlength='100'"),
+      field('valor', 'Valor', 'text', "required class='preco-mask'"),
+      field('emissao', 'Emissão', 'date'),
+      field('vencimento', 'Vencimento', 'date', 'required'),
+      field('status', 'Situação', 'select', 'required'),
+      field('pagamento', 'Data do pagamento', 'date'),
+      field('condicaoPagamentoId', 'Forma de pagamento', 'select'),
+      `<p class="full hint fin-origem-info" id="finOrigemInfo" hidden></p>`,
+      field('obs', 'Observações', 'textarea', "maxlength='500'")
+    ].join(''),
+  condicoesPagamento: () =>
+    [
+      field('Descricao', 'Descrição', 'text', "required maxlength='100' placeholder='Ex.: Boleto 30/60/90'"),
+      field('Tipo', 'Tipo (meio de pagamento)', 'select', 'required'),
+      field('QuantidadeParcelas', 'Quantidade de parcelas', 'number', "required min='1' max='120' step='1'"),
+      field('PrazoMedio', 'Prazo médio (dias)', 'number', "required min='0' max='3650' step='1'"),
+      field('Status', 'Status', 'select', 'required'),
+      `<div class="full condicao-previa" aria-live="polite"><span>Vencimentos</span><strong id="condicaoPrevia">À vista</strong><small class="hint" id="condicaoPreviaDica"></small></div>`
+    ].join('')
 };
 
 const SELECTS = {
-  clientes: { status: ["Ativo", "Inativo"] },
-  veiculos: { status: ["Ativo", "Inativo"] },
-  servicos: { status: ["Ativo", "Inativo"] },
-  produtos: { status: ["Ativo", "Inativo"] },
+  clientes: { status: ['Ativo', 'Inativo'] },
+  veiculos: { status: ['Ativo', 'Inativo'] },
+  servicos: { status: ['Ativo', 'Inativo'] },
+  produtos: { status: ['Ativo', 'Inativo'] },
   carcacas: {
-    origem: ["cliente", "compra", "retorno"],
-    status: ["recebida", "inspecionada", "aprovada", "reprovada", "em produção", "pronta"]
+    origem: ['cliente', 'compra', 'retorno'],
+    status: ['recebida', 'inspecionada', 'aprovada', 'reprovada', 'em produção', 'pronta']
   },
-  carcacaOrdens: { origem: ["cliente", "compra", "retorno"], status: [["registrado", "Registrado"], ["conferido", "Conferido"]] },
-  estoque: { tipo: ["novo", "recapado", "insumo", "carcaça"] },
-  producao: { turno: ["Manhã", "Tarde", "Noite"], status: ["em andamento", "concluída", "refugo"] },
-  cargas: { tipo: ["carga", "descarga"], status: ["aguardando", "conferida", "saiu", "divergente"] },
+  carcacaOrdens: {
+    origem: ['cliente', 'compra', 'retorno'],
+    status: [
+      ['registrado', 'Registrado'],
+      ['conferido', 'Conferido']
+    ]
+  },
+  estoque: { tipo: ['novo', 'recapado', 'insumo', 'carcaça'] },
+  producao: { turno: ['Manhã', 'Tarde', 'Noite'], status: ['em andamento', 'concluída', 'refugo'] },
+  cargas: { tipo: ['carga', 'descarga'], status: ['aguardando', 'conferida', 'saiu', 'divergente'] },
   lancamentos: {
-    tipo: [["receber", "A receber (entrada)"], ["pagar", "A pagar (saída)"]],
-    status: [["pendente", "Pendente"], ["pago", "Pago / recebido"], ["cancelado", "Cancelado"]]
+    tipo: [
+      ['receber', 'A receber (entrada)'],
+      ['pagar', 'A pagar (saída)']
+    ],
+    status: [
+      ['pendente', 'Pendente'],
+      ['pago', 'Pago / recebido'],
+      ['cancelado', 'Cancelado']
+    ]
   },
-  condicoesPagamento: { Tipo: TIPOS_CONDICAO_PAGAMENTO, Status: ["Ativo", "Inativo"] }
+  condicoesPagamento: { Tipo: TIPOS_CONDICAO_PAGAMENTO, Status: ['Ativo', 'Inativo'] }
 };
 
 function vendasDisponiveisCarga(row) {
-  const vendas = db.pedidos.filter((pedido) => ["faturado", "pago"].includes(String(pedido.status || "").trim().toLowerCase()));
+  const vendas = db.pedidos.filter((pedido) =>
+    ['faturado', 'pago'].includes(
+      String(pedido.status || '')
+        .trim()
+        .toLowerCase()
+    )
+  );
   const vendaAtual = row?.pedidoId ? db.pedidos.find((pedido) => sameId(pedido.id, row.pedidoId)) : null;
   if (vendaAtual && !vendas.some((pedido) => sameId(pedido.id, vendaAtual.id))) vendas.unshift(vendaAtual);
   return vendas;
@@ -192,161 +236,227 @@ function vendasDisponiveisCarga(row) {
 
 function fillSelects(root, kind, row) {
   const spec = SELECTS[kind] || {};
-  root.querySelectorAll("select").forEach((sel) => {
+  root.querySelectorAll('select').forEach((sel) => {
     const options = spec[sel.name] || [];
-    const isCliente = sel.name === "clienteId";
-    const isOperador = sel.name === "operador";
-    const isMedidaCarcaca = kind === "producao" && sel.name === "medida";
-    const isFuncionarioCarga = kind === "cargas" && sel.name === "funcionario";
-    const isVendaCarga = kind === "cargas" && sel.name === "pedidoId";
-    const isCategoriaProduto = kind === "produtos" && sel.name === "categoriaId";
-    const isTipoEntidade = kind === "clientes" && sel.name === "tipoEntidadeId";
+    const isCliente = sel.name === 'clienteId';
+    const isOperador = sel.name === 'operador';
+    const isMedidaCarcaca = kind === 'producao' && sel.name === 'medida';
+    const isFuncionarioCarga = kind === 'cargas' && sel.name === 'funcionario';
+    const isVendaCarga = kind === 'cargas' && sel.name === 'pedidoId';
+    const isCategoriaProduto = kind === 'produtos' && sel.name === 'categoriaId';
+    const isTipoEntidade = kind === 'clientes' && sel.name === 'tipoEntidadeId';
     let choices = options;
     if (isCliente) {
       choices = db.clientes
-        .filter((cliente) => String(cliente.status || "").toLowerCase() !== "inativo")
-        .map((cliente) => [cliente.id, `${cliente.nome}${cliente.documento ? ` · ${cliente.documento}` : ""}`]);
+        .filter((cliente) => String(cliente.status || '').toLowerCase() !== 'inativo')
+        .map((cliente) => [
+          cliente.id,
+          `${cliente.nome}${cliente.documento ? ` · ${cliente.documento}` : ''}`
+        ]);
     } else if (isOperador || isFuncionarioCarga) {
       const funcionarios = db.clientes
-        .filter((cliente) => String(cliente.tipo || "").trim().toLocaleLowerCase("pt-BR") === "funcionário" && String(cliente.status || "").toLowerCase() !== "inativo")
-        .map((cliente) => String(cliente.nome || "").trim())
+        .filter(
+          (cliente) =>
+            String(cliente.tipo || '')
+              .trim()
+              .toLocaleLowerCase('pt-BR') === 'funcionário' &&
+            String(cliente.status || '').toLowerCase() !== 'inativo'
+        )
+        .map((cliente) => String(cliente.nome || '').trim())
         .filter(Boolean);
-      const atual = String(isFuncionarioCarga ? row?.funcionario || "" : "").trim();
-      if (atual && !funcionarios.some((nome) => nome.toLocaleLowerCase("pt-BR") === atual.toLocaleLowerCase("pt-BR"))) {
+      const atual = String(isFuncionarioCarga ? row?.funcionario || '' : '').trim();
+      if (
+        atual &&
+        !funcionarios.some((nome) => nome.toLocaleLowerCase('pt-BR') === atual.toLocaleLowerCase('pt-BR'))
+      ) {
         funcionarios.unshift(atual);
       }
-      choices = [...new Map(funcionarios.map((nome) => [nome.toLocaleLowerCase("pt-BR"), nome])).values()];
+      choices = [...new Map(funcionarios.map((nome) => [nome.toLocaleLowerCase('pt-BR'), nome])).values()];
     } else if (isMedidaCarcaca) {
       // Medidas das carcaças vêm dos produtos da categoria Carcaça (cadastro
       // atual) e, para registros antigos, também da tabela legada de carcaças.
-      const medidas = [...new Set([
-        ...db.produtos
-          .filter((produto) => ehCategoriaCarcaca(produto.categoria))
-          .map((produto) => String(produto.medida || "").trim()),
-        ...(db.carcacas || []).map((carcaca) => String(carcaca.medida || "").trim())
-      ].filter(Boolean))];
-      const medidaAtual = String(row?.medida || "").trim();
-      if (medidaAtual && !medidas.some((medida) => medida.toLocaleLowerCase("pt-BR") === medidaAtual.toLocaleLowerCase("pt-BR"))) {
+      const medidas = [
+        ...new Set(
+          [
+            ...db.produtos
+              .filter((produto) => ehCategoriaCarcaca(produto.categoria))
+              .map((produto) => String(produto.medida || '').trim()),
+            ...(db.carcacas || []).map((carcaca) => String(carcaca.medida || '').trim())
+          ].filter(Boolean)
+        )
+      ];
+      const medidaAtual = String(row?.medida || '').trim();
+      if (
+        medidaAtual &&
+        !medidas.some(
+          (medida) => medida.toLocaleLowerCase('pt-BR') === medidaAtual.toLocaleLowerCase('pt-BR')
+        )
+      ) {
         medidas.unshift(medidaAtual);
       }
       choices = medidas;
     } else if (isCategoriaProduto) {
       // Categorias vêm da tabela produtoCategoria (ativas + a atual do produto, se inativa).
       choices = (db.produtoCategoria || [])
-        .filter((categoria) => String(categoria.status || "").toLowerCase() !== "inativo" || sameId(categoria.id, row?.categoriaId))
+        .filter(
+          (categoria) =>
+            String(categoria.status || '').toLowerCase() !== 'inativo' ||
+            sameId(categoria.id, row?.categoriaId)
+        )
         .map((categoria) => [categoria.id, categoria.nome]);
     } else if (isTipoEntidade) {
       // O tipo da entidade vem da tabela tiposEntidades (ativos + o atual, se inativo).
       choices = (db.tiposEntidades || [])
-        .filter((tipo) => String(tipo.status || "").toLowerCase() !== "inativo" || sameId(tipo.id, row?.tipoEntidadeId))
+        .filter(
+          (tipo) =>
+            String(tipo.status || '').toLowerCase() !== 'inativo' || sameId(tipo.id, row?.tipoEntidadeId)
+        )
         .map((tipo) => [tipo.id, tipo.nome]);
     } else if (isVendaCarga) {
       choices = vendasDisponiveisCarga(row).map((pedido) => {
-        const cliente = pedido.cliente || db.clientes.find((item) => sameId(item.id, pedido.clienteId))?.nome || "Cliente não informado";
-        const numero = pedido.numero || "Venda";
+        const cliente =
+          pedido.cliente ||
+          db.clientes.find((item) => sameId(item.id, pedido.clienteId))?.nome ||
+          'Cliente não informado';
+        const numero = pedido.numero || 'Venda';
         return [pedido.id, `${numero} · ${cliente} · ${totalPecasPedido(pedido)} peças`];
       });
     }
-    const dinamico = isCliente || isOperador || isMedidaCarcaca || isFuncionarioCarga || isVendaCarga || isCategoriaProduto || isTipoEntidade;
-    const placeholder = isMedidaCarcaca && choices.length === 0
-      ? "Cadastre uma carcaça com medida"
-      : isFuncionarioCarga && choices.length === 0
-        ? "Cadastre um funcionário"
-        : isTipoEntidade && choices.length === 0
-          ? "Cadastre um tipo de entidade"
-          : isVendaCarga && choices.length === 0
-            ? "Nenhuma venda faturada ou paga"
-            : isVendaCarga
-              ? "Sem venda vinculada (opcional)"
-              : isCategoriaProduto && row && !row.categoriaId && row.categoria
-                ? `Selecione... (categoria antiga: ${row.categoria})`
-                : "Selecione...";
-    sel.innerHTML = (dinamico ? `<option value="">${escapeHtml(placeholder)}</option>` : "") + choices.map((o) => Array.isArray(o)
-      ? `<option value="${escapeHtml(o[0])}">${escapeHtml(o[1])}</option>`
-      : `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join("");
+    const dinamico =
+      isCliente ||
+      isOperador ||
+      isMedidaCarcaca ||
+      isFuncionarioCarga ||
+      isVendaCarga ||
+      isCategoriaProduto ||
+      isTipoEntidade;
+    const placeholder =
+      isMedidaCarcaca && choices.length === 0
+        ? 'Cadastre uma carcaça com medida'
+        : isFuncionarioCarga && choices.length === 0
+          ? 'Cadastre um funcionário'
+          : isTipoEntidade && choices.length === 0
+            ? 'Cadastre um tipo de entidade'
+            : isVendaCarga && choices.length === 0
+              ? 'Nenhuma venda faturada ou paga'
+              : isVendaCarga
+                ? 'Sem venda vinculada (opcional)'
+                : isCategoriaProduto && row && !row.categoriaId && row.categoria
+                  ? `Selecione... (categoria antiga: ${row.categoria})`
+                  : 'Selecione...';
+    sel.innerHTML =
+      (dinamico ? `<option value="">${escapeHtml(placeholder)}</option>` : '') +
+      choices
+        .map((o) =>
+          Array.isArray(o)
+            ? `<option value="${escapeHtml(o[0])}">${escapeHtml(o[1])}</option>`
+            : `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`
+        )
+        .join('');
   });
 }
 
-document.getElementById("nav").innerHTML = NAV.map(([id, label]) => `<button data-page="${id}">${label}</button>`).join("");
-document.getElementById("nav").onclick = (e) => {
-  const b = e.target.closest("button");
+document.getElementById('nav').innerHTML = NAV.map(
+  ([id, label]) => `<button data-page="${id}">${label}</button>`
+).join('');
+document.getElementById('nav').onclick = (e) => {
+  const b = e.target.closest('button');
   if (!b) return;
   page = b.dataset.page;
   pedidoId = null;
   editingPedidoId = null;
   vendaRascunho = null;
-  query = "";
+  query = '';
   vendaPagina = 1;
-  confirmDelete = "";
+  confirmDelete = '';
   render();
 };
-document.getElementById("cancelBtn").onclick = () => document.getElementById("modal").classList.remove("show");
-document.getElementById("form").onsubmit = async (e) => {
+document.getElementById('cancelBtn').onclick = () =>
+  document.getElementById('modal').classList.remove('show');
+document.getElementById('form').onsubmit = async (e) => {
   e.preventDefault();
   const data = {};
   for (const el of e.target.elements) {
-    if (!el.name || el.disabled || el.type === "button") continue;
+    if (!el.name || el.disabled || el.type === 'button') continue;
     const key = el.dataset.realname || el.name;
     data[key] = el.value;
   }
-  const camposPreco = ["custo", "preco", "valor", "unitario", "valorUnitario", "limiteCredito"];
-  const camposNumero = ["qtd", "minimo", "carcacas", "QuantidadeParcelas", "PrazoMedio"];
+  const camposPreco = ['custo', 'preco', 'valor', 'unitario', 'valorUnitario', 'limiteCredito'];
+  const camposNumero = ['qtd', 'minimo', 'carcacas', 'QuantidadeParcelas', 'PrazoMedio'];
   camposPreco.forEach((k) => {
     if (k in data) data[k] = parsePrecoBR(data[k]);
   });
   camposNumero.forEach((k) => {
     if (k in data) data[k] = Number(data[k] || 0);
   });
-  if (editing.kind === "produtos") {
-    data.produtoId = String(data.produtoId || "").trim();
-    const codigo = data.produtoId.toLocaleLowerCase("pt-BR");
-    const repetido = db.produtos.find((produto) => !sameId(produto.id, editing.id)
-      && String(produto.produtoId || "").trim().toLocaleLowerCase("pt-BR") === codigo);
-    if (!codigo) { toast("Informe o código do produto.", "warn"); return; }
-    if (repetido) { toast(`Já existe um produto com o código ${data.produtoId} (${repetido.nome}). Use outro código.`, "warn"); return; }
+  if (editing.kind === 'produtos') {
+    data.produtoId = String(data.produtoId || '').trim();
+    const codigo = data.produtoId.toLocaleLowerCase('pt-BR');
+    const repetido = db.produtos.find(
+      (produto) =>
+        !sameId(produto.id, editing.id) &&
+        String(produto.produtoId || '')
+          .trim()
+          .toLocaleLowerCase('pt-BR') === codigo
+    );
+    if (!codigo) {
+      toast('Informe o código do produto.', 'warn');
+      return;
+    }
+    if (repetido) {
+      toast(
+        `Já existe um produto com o código ${data.produtoId} (${repetido.nome}). Use outro código.`,
+        'warn'
+      );
+      return;
+    }
   }
   try {
     if (editing.id) {
-      await api(`/api/${editing.kind}/${editing.id}`, { method: "PUT", body: JSON.stringify(data) });
+      await api(`/api/${editing.kind}/${editing.id}`, { method: 'PUT', body: JSON.stringify(data) });
     } else {
-      await api(`/api/${editing.kind}`, { method: "POST", body: JSON.stringify(data) });
+      await api(`/api/${editing.kind}`, { method: 'POST', body: JSON.stringify(data) });
     }
-    document.getElementById("modal").classList.remove("show");
+    document.getElementById('modal').classList.remove('show');
     await load();
     render();
   } catch (error) {
-    toast(`Não foi possível salvar: ${error.message}`, "bad");
+    toast(`Não foi possível salvar: ${error.message}`, 'bad');
   }
 };
 
-
 async function buscarCnpj() {
-  const input = document.querySelector('#form input[data-realname="documento"]') || document.querySelector('#form input[name="documento"]');
+  const input =
+    document.querySelector('#form input[data-realname="documento"]') ||
+    document.querySelector('#form input[name="documento"]');
   if (!input) return;
-  let cnpj = (input.value || "").replace(/\D/g, "");
+  let cnpj = (input.value || '').replace(/\D/g, '');
   if (cnpj.length !== 14) {
-    toast("Informe um CNPJ válido com 14 dígitos.", "warn");
+    toast('Informe um CNPJ válido com 14 dígitos.', 'warn');
     return;
   }
 
-  const btn = document.getElementById("btnBuscarCnpj");
-  const originalText = btn ? btn.textContent : "Buscar";
-  if (btn) { btn.disabled = true; btn.textContent = "Buscando..."; }
+  const btn = document.getElementById('btnBuscarCnpj');
+  const originalText = btn ? btn.textContent : 'Buscar';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Buscando...';
+  }
 
   try {
-    const token = sessionStorage.getItem("token");
-    const headers = token ? { "Authorization": "Bearer " + token } : {};
+    const token = sessionStorage.getItem('token');
+    const headers = token ? { Authorization: 'Bearer ' + token } : {};
     const res = await fetch(`/api/consulta/cnpj/${cnpj}`, { headers });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || "CNPJ não encontrado");
+      throw new Error(err.detail || 'CNPJ não encontrado');
     }
     const raw = await res.json();
 
     // Normaliza tanto BrasilAPI quanto ReceitaWS
     function formatarTelefone(num) {
-      if (!num) return "";
-      const d = String(num).replace(/\D/g, "");
+      if (!num) return '';
+      const d = String(num).replace(/\D/g, '');
       if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
       if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
       return d;
@@ -357,7 +467,7 @@ async function buscarCnpj() {
     if (raw.ddd_telefone_2) tels.push(raw.ddd_telefone_2);
     if (raw.telefone) {
       // ReceitaWS pode vir com um ou mais números juntos ou separados
-      const limpo = String(raw.telefone).replace(/\D/g, "");
+      const limpo = String(raw.telefone).replace(/\D/g, '');
       if (limpo.length > 11) {
         // tenta separar em blocos de 10 ou 11
         for (let i = 0; i < limpo.length;) {
@@ -371,70 +481,81 @@ async function buscarCnpj() {
         tels.push(limpo);
       }
     }
-    tels = [...new Set(tels.map(t => String(t).replace(/\D/g, "")).filter(t => t.length >= 10))];
-    const telefoneFormatado = tels.map(formatarTelefone).join(" / ");
+    tels = [...new Set(tels.map((t) => String(t).replace(/\D/g, '')).filter((t) => t.length >= 10))];
+    const telefoneFormatado = tels.map(formatarTelefone).join(' / ');
 
-    const data = raw.razao_social || raw.nome
-      ? {
-        razao_social: raw.razao_social || raw.nome,
-        nome_fantasia: raw.nome_fantasia || raw.fantasia,
-        cep: raw.cep,
-        logradouro: raw.logradouro,
-        numero: raw.numero,
-        complemento: raw.complemento,
-        bairro: raw.bairro,
-        municipio: raw.municipio,
-        uf: raw.uf,
-        telefone: telefoneFormatado
-      }
-      : { ...raw, telefone: telefoneFormatado };
+    const data =
+      raw.razao_social || raw.nome
+        ? {
+            razao_social: raw.razao_social || raw.nome,
+            nome_fantasia: raw.nome_fantasia || raw.fantasia,
+            cep: raw.cep,
+            logradouro: raw.logradouro,
+            numero: raw.numero,
+            complemento: raw.complemento,
+            bairro: raw.bairro,
+            municipio: raw.municipio,
+            uf: raw.uf,
+            telefone: telefoneFormatado
+          }
+        : { ...raw, telefone: telefoneFormatado };
 
-    const form = document.getElementById("form");
-    const set = (n, v) => { const el = getField(form, n); if (el && v != null) el.value = v; };
-    if (!getField(form, "nome")?.value) set("nome", data.razao_social || data.nome_fantasia || "");
-    set("cep", (data.cep || "").replace(/\D/g, ""));
-    set("endereco", data.logradouro || "");
-    set("numero", data.numero || "");
-    set("complemento", data.complemento || "");
-    set("bairro", data.bairro || "");
-    set("cidade", data.municipio || "");
-    set("estado", data.uf || "");
-    if (data.telefone && !getField(form, "telefone")?.value) set("telefone", data.telefone);
+    const form = document.getElementById('form');
+    const set = (n, v) => {
+      const el = getField(form, n);
+      if (el && v != null) el.value = v;
+    };
+    if (!getField(form, 'nome')?.value) set('nome', data.razao_social || data.nome_fantasia || '');
+    set('cep', (data.cep || '').replace(/\D/g, ''));
+    set('endereco', data.logradouro || '');
+    set('numero', data.numero || '');
+    set('complemento', data.complemento || '');
+    set('bairro', data.bairro || '');
+    set('cidade', data.municipio || '');
+    set('estado', data.uf || '');
+    if (data.telefone && !getField(form, 'telefone')?.value) set('telefone', data.telefone);
 
-    toast("Dados preenchidos com sucesso.", "ok");
+    toast('Dados preenchidos com sucesso.', 'ok');
   } catch (e) {
-    toast("Erro ao consultar CNPJ: " + e.message, "bad");
+    toast('Erro ao consultar CNPJ: ' + e.message, 'bad');
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = originalText; }
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
   }
 }
 
 async function buscarCep(auto = false) {
-  const input = document.querySelector('#form input[data-realname="cep"]') || document.querySelector('#form input[name="cep"]');
+  const input =
+    document.querySelector('#form input[data-realname="cep"]') ||
+    document.querySelector('#form input[name="cep"]');
   if (!input) return;
-  let cep = (input.value || "").replace(/\D/g, "");
+  let cep = (input.value || '').replace(/\D/g, '');
   if (cep.length !== 8) {
-    if (!auto) toast("Informe um CEP válido com 8 dígitos.", "warn");
+    if (!auto) toast('Informe um CEP válido com 8 dígitos.', 'warn');
     return;
   }
   try {
-    const token = sessionStorage.getItem("token");
-    const headers = token ? { "Authorization": "Bearer " + token } : {};
+    const token = sessionStorage.getItem('token');
+    const headers = token ? { Authorization: 'Bearer ' + token } : {};
     const res = await fetch(`/api/consulta/cep/${cep}`, { headers });
     const data = await res.json();
-    if (data.erro) throw new Error("CEP não encontrado");
-    const form = document.getElementById("form");
-    const set = (n, v) => { const el = getField(form, n); if (el && v != null) el.value = v; };
-    set("endereco", data.logradouro || "");
-    set("bairro", data.bairro || "");
-    set("cidade", data.localidade || "");
-    set("estado", data.uf || "");
-    if (!auto) toast("Endereço preenchido automaticamente.", "ok");
+    if (data.erro) throw new Error('CEP não encontrado');
+    const form = document.getElementById('form');
+    const set = (n, v) => {
+      const el = getField(form, n);
+      if (el && v != null) el.value = v;
+    };
+    set('endereco', data.logradouro || '');
+    set('bairro', data.bairro || '');
+    set('cidade', data.localidade || '');
+    set('estado', data.uf || '');
+    if (!auto) toast('Endereço preenchido automaticamente.', 'ok');
   } catch (e) {
-    if (!auto) toast("Erro ao consultar CEP: " + e.message, "bad");
+    if (!auto) toast('Erro ao consultar CEP: ' + e.message, 'bad');
   }
 }
-
 
 function getField(form, realname) {
   return form.querySelector(`[data-realname="${realname}"]`) || form.elements[realname];
@@ -443,35 +564,47 @@ function getField(form, realname) {
 function openForm(kind, row) {
   // Máscaras no cadastro de cliente
   setTimeout(() => {
-    if (kind === "clientes") {
-      const tel = document.querySelector('#form input[data-realname="telefone"], #form input[name="f_telefone"]');
-      if (tel && typeof aplicarMascaraTelefone === "function") aplicarMascaraTelefone(tel);
+    if (kind === 'clientes') {
+      const tel = document.querySelector(
+        '#form input[data-realname="telefone"], #form input[name="f_telefone"]'
+      );
+      if (tel && typeof aplicarMascaraTelefone === 'function') aplicarMascaraTelefone(tel);
       const doc = document.querySelector('#form input[data-realname="documento"], #form input[name="f_doc"]');
-      if (doc && typeof aplicarMascaraCpfCnpj === "function") aplicarMascaraCpfCnpj(doc);
+      if (doc && typeof aplicarMascaraCpfCnpj === 'function') aplicarMascaraCpfCnpj(doc);
     }
   }, 50);
 
   editing = { kind, id: row?.id || null };
-  const titles = { clientes: row ? "Editar entidade" : "Cadastrar entidade", produtos: row ? "Editar produto" : "Cadastrar produto", carcacas: "Carcaça", carcacaOrdens: row ? `Apontamento ${row.numero || "de carcaças"}` : "Novo apontamento de carcaças", estoque: "Estoque", producao: "Produção", cargas: "Movimento", lancamentos: row ? `Lançamento ${row.codigo || ""}`.trim() : "Novo lançamento financeiro", condicoesPagamento: row ? `Forma de pagamento ${row.Codigo || ""}`.trim() : "Nova forma de pagamento" };
-  document.getElementById("modalTitle").textContent = titles[kind] || "Registro";
-  document.getElementById("formFields").innerHTML = FORMS[kind]();
-  const form = document.getElementById("form");
+  const titles = {
+    clientes: row ? 'Editar entidade' : 'Cadastrar entidade',
+    produtos: row ? 'Editar produto' : 'Cadastrar produto',
+    carcacas: 'Carcaça',
+    carcacaOrdens: row ? `Apontamento ${row.numero || 'de carcaças'}` : 'Novo apontamento de carcaças',
+    estoque: 'Estoque',
+    producao: 'Produção',
+    cargas: 'Movimento',
+    lancamentos: row ? `Lançamento ${row.codigo || ''}`.trim() : 'Novo lançamento financeiro',
+    condicoesPagamento: row ? `Forma de pagamento ${row.Codigo || ''}`.trim() : 'Nova forma de pagamento'
+  };
+  document.getElementById('modalTitle').textContent = titles[kind] || 'Registro';
+  document.getElementById('formFields').innerHTML = FORMS[kind]();
+  const form = document.getElementById('form');
   // Restaura o envio padrão do formulário caso a abertura anterior tenha
   // instalado um envio customizado (fluxo do apontamento de carcaças).
   if (!openForm._submitPadrao) openForm._submitPadrao = form.onsubmit;
   else form.onsubmit = openForm._submitPadrao;
   // O apontamento usa um popup mais largo, com a lista de carcaças ao lado.
-  form.classList.toggle("modal-largo", kind === "carcacaOrdens" || kind === "cargas");
+  form.classList.toggle('modal-largo', kind === 'carcacaOrdens' || kind === 'cargas');
   fillSelects(form, kind, row);
-  if (kind === "clientes") {
-    const btnCnpj = document.getElementById("btnBuscarCnpj");
+  if (kind === 'clientes') {
+    const btnCnpj = document.getElementById('btnBuscarCnpj');
     if (btnCnpj) btnCnpj.onclick = buscarCnpj;
-    const btnCep = document.getElementById("btnBuscarCep");
+    const btnCep = document.getElementById('btnBuscarCep');
     if (btnCep) btnCep.onclick = () => buscarCep(false);
-    const cepInput = getField(form, "cep");
+    const cepInput = getField(form, 'cep');
     if (cepInput) {
-      cepInput.addEventListener("input", () => {
-        const digits = cepInput.value.replace(/\D/g, "");
+      cepInput.addEventListener('input', () => {
+        const digits = cepInput.value.replace(/\D/g, '');
         if (digits.length === 8) buscarCep(true);
       });
     }
@@ -479,36 +612,39 @@ function openForm(kind, row) {
   if (row) {
     Object.entries(row).forEach(([k, v]) => {
       const el = getField(form, k);
-      if (el) el.value = v ?? "";
+      if (el) el.value = v ?? '';
     });
     // Em registros vinculados, usa a descrição atual do cadastro do produto
     // quando o texto legado da tabela de estoque estiver vazio.
-    if (kind === "estoque") {
+    if (kind === 'estoque') {
       // Localiza o produto pelo código textual compartilhado com o estoque.
-      const produto = db.produtos.find(p =>
-        p.produtoId && row.produtoId && String(p.produtoId).trim().toLowerCase() === String(row.produtoId).trim().toLowerCase()
+      const produto = db.produtos.find(
+        (p) =>
+          p.produtoId &&
+          row.produtoId &&
+          String(p.produtoId).trim().toLowerCase() === String(row.produtoId).trim().toLowerCase()
       );
-      if (form.elements.item) form.elements.item.value = produto?.nome || row.item || "";
-      if (form.elements.produtoId) form.elements.produtoId.value = row.produtoId || produto?.produtoId || "";
-      if (form.elements.medida) form.elements.medida.value = row.medida || produto?.medida || "";
+      if (form.elements.item) form.elements.item.value = produto?.nome || row.item || '';
+      if (form.elements.produtoId) form.elements.produtoId.value = row.produtoId || produto?.produtoId || '';
+      if (form.elements.medida) form.elements.medida.value = row.medida || produto?.medida || '';
     }
-  } else if (getField(form, "data")) getField(form, "data").value = today();
-  if (kind === "lancamentos") configurarFormLancamento(form, row);
-  if (kind === "condicoesPagamento") configurarFormCondicao(form, row);
-  if (kind === "produtos") {
+  } else if (getField(form, 'data')) getField(form, 'data').value = today();
+  if (kind === 'lancamentos') configurarFormLancamento(form, row);
+  if (kind === 'condicoesPagamento') configurarFormCondicao(form, row);
+  if (kind === 'produtos') {
     const categoriaSel = form.querySelector('select[name="categoriaId"]');
-    if (categoriaSel) categoriaSel.value = row?.categoriaId ? String(row.categoriaId) : "";
+    if (categoriaSel) categoriaSel.value = row?.categoriaId ? String(row.categoriaId) : '';
   }
-  if (kind === "cargas") {
-    const vendaSelect = getField(form, "pedidoId");
-    const buscaPedido = document.getElementById("buscaPedidoCarga");
-    const sugestoes = document.getElementById("sugestoesPedidoCarga");
-    const preview = document.getElementById("cargaVendaPreview");
+  if (kind === 'cargas') {
+    const vendaSelect = getField(form, 'pedidoId');
+    const buscaPedido = document.getElementById('buscaPedidoCarga');
+    const sugestoes = document.getElementById('sugestoesPedidoCarga');
+    const preview = document.getElementById('cargaVendaPreview');
     const ocultarSugestoes = () => {
       if (!sugestoes) return;
       sugestoes.hidden = true;
-      sugestoes.innerHTML = "";
-      buscaPedido?.setAttribute("aria-expanded", "false");
+      sugestoes.innerHTML = '';
+      buscaPedido?.setAttribute('aria-expanded', 'false');
     };
     const atualizarResumoVenda = () => {
       if (!preview) return;
@@ -517,98 +653,112 @@ function openForm(kind, row) {
         preview.innerHTML = `<p class="hint">Digite 3 ou mais números e escolha uma sugestão para ver o cliente e o total de peças. O vínculo é opcional.</p>`;
         return;
       }
-      const cliente = venda.cliente || db.clientes.find((item) => sameId(item.id, venda.clienteId))?.nome || "Cliente não informado";
+      const cliente =
+        venda.cliente ||
+        db.clientes.find((item) => sameId(item.id, venda.clienteId))?.nome ||
+        'Cliente não informado';
       preview.innerHTML = `<div class="carga-venda-resumo">
-        <div><span>Venda</span><strong>${escapeHtml(venda.numero || "—")}</strong></div>
+        <div><span>Venda</span><strong>${escapeHtml(venda.numero || '—')}</strong></div>
         <div><span>Cliente</span><strong>${escapeHtml(cliente)}</strong></div>
         <div><span>Total de peças</span><strong>${totalPecasPedido(venda)} <small>peças</small></strong></div>
       </div>`;
     };
     const mostrarSugestoes = () => {
       if (!buscaPedido || !sugestoes) return;
-      const numerosDigitados = buscaPedido.value.replace(/\D/g, "");
+      const numerosDigitados = buscaPedido.value.replace(/\D/g, '');
       if (numerosDigitados.length < 3) {
         ocultarSugestoes();
         return;
       }
-      const encontradas = vendasDisponiveisCarga(row).filter((venda) => {
-        const numero = String(venda.numero || "").replace(/\D/g, "");
-        return numero.startsWith(numerosDigitados) || numero.includes(numerosDigitados);
-      }).slice(0, 8);
+      const encontradas = vendasDisponiveisCarga(row)
+        .filter((venda) => {
+          const numero = String(venda.numero || '').replace(/\D/g, '');
+          return numero.startsWith(numerosDigitados) || numero.includes(numerosDigitados);
+        })
+        .slice(0, 8);
       sugestoes.innerHTML = encontradas.length
-        ? encontradas.map((venda) => {
-          const cliente = venda.cliente || db.clientes.find((item) => sameId(item.id, venda.clienteId))?.nome || "Cliente não informado";
-          return `<button type="button" class="carga-pedido-sugestao" role="option" aria-selected="false" data-pedido-carga="${escapeAttr(venda.id)}">
-              <strong>${escapeHtml(venda.numero || "Venda")}</strong>
+        ? encontradas
+            .map((venda) => {
+              const cliente =
+                venda.cliente ||
+                db.clientes.find((item) => sameId(item.id, venda.clienteId))?.nome ||
+                'Cliente não informado';
+              return `<button type="button" class="carga-pedido-sugestao" role="option" aria-selected="false" data-pedido-carga="${escapeAttr(venda.id)}">
+              <strong>${escapeHtml(venda.numero || 'Venda')}</strong>
               <span>${escapeHtml(cliente)} · ${totalPecasPedido(venda)} peças</span>
             </button>`;
-        }).join("")
+            })
+            .join('')
         : `<div class="carga-pedido-sem-sugestoes">Nenhuma venda encontrada com esses números.</div>`;
       sugestoes.hidden = false;
-      buscaPedido.setAttribute("aria-expanded", "true");
-      sugestoes.querySelectorAll("[data-pedido-carga]").forEach((button) => {
+      buscaPedido.setAttribute('aria-expanded', 'true');
+      sugestoes.querySelectorAll('[data-pedido-carga]').forEach((button) => {
         button.onclick = () => {
           const venda = db.pedidos.find((pedido) => sameId(pedido.id, button.dataset.pedidoCarga));
           if (!venda) return;
           vendaSelect.value = venda.id;
-          buscaPedido.value = venda.numero || "";
+          buscaPedido.value = venda.numero || '';
           ocultarSugestoes();
-          vendaSelect.dispatchEvent(new Event("change", { bubbles: true }));
+          vendaSelect.dispatchEvent(new Event('change', { bubbles: true }));
           buscaPedido.focus();
         };
       });
     };
     const vendaSelecionada = db.pedidos.find((pedido) => sameId(pedido.id, vendaSelect?.value));
-    if (vendaSelecionada && buscaPedido) buscaPedido.value = vendaSelecionada.numero || "";
-    vendaSelect?.addEventListener("change", atualizarResumoVenda);
-    buscaPedido?.addEventListener("input", () => {
+    if (vendaSelecionada && buscaPedido) buscaPedido.value = vendaSelecionada.numero || '';
+    vendaSelect?.addEventListener('change', atualizarResumoVenda);
+    buscaPedido?.addEventListener('input', () => {
       const selecionada = db.pedidos.find((pedido) => sameId(pedido.id, vendaSelect?.value));
-      const numerosDigitados = buscaPedido.value.replace(/\D/g, "");
-      const numerosSelecionados = String(selecionada?.numero || "").replace(/\D/g, "");
+      const numerosDigitados = buscaPedido.value.replace(/\D/g, '');
+      const numerosSelecionados = String(selecionada?.numero || '').replace(/\D/g, '');
       if (!selecionada || numerosDigitados !== numerosSelecionados) {
-        if (vendaSelect) vendaSelect.value = "";
+        if (vendaSelect) vendaSelect.value = '';
         atualizarResumoVenda();
       }
       mostrarSugestoes();
     });
-    buscaPedido?.addEventListener("keydown", (event) => {
-      if (event.key === "ArrowDown") {
-        const primeira = sugestoes?.querySelector("[data-pedido-carga]");
+    buscaPedido?.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowDown') {
+        const primeira = sugestoes?.querySelector('[data-pedido-carga]');
         if (primeira) {
           event.preventDefault();
           primeira.focus();
         }
-      } else if (event.key === "Enter") {
-        const primeira = sugestoes?.querySelector("[data-pedido-carga]");
+      } else if (event.key === 'Enter') {
+        const primeira = sugestoes?.querySelector('[data-pedido-carga]');
         event.preventDefault();
         primeira?.click();
-      } else if (event.key === "Escape") {
+      } else if (event.key === 'Escape') {
         ocultarSugestoes();
       }
     });
     atualizarResumoVenda();
 
     // ---- Vários produtos por movimento (descarga = entrada; carga = saída) ----
-    const tipoSel = getField(form, "tipo");
-    const buscaProduto = document.getElementById("buscaProdutoCarga");
-    const resultadosEl = document.getElementById("cargaProdutoResultados");
-    const selecionadosEl = document.getElementById("cargaProdutosSelecionados");
-    const avisoEl = document.getElementById("cargaEstoqueAviso");
-    const chaveDe = (id) => String(id || "").toLowerCase();
+    const tipoSel = getField(form, 'tipo');
+    const buscaProduto = document.getElementById('buscaProdutoCarga');
+    const resultadosEl = document.getElementById('cargaProdutoResultados');
+    const selecionadosEl = document.getElementById('cargaProdutosSelecionados');
+    const avisoEl = document.getElementById('cargaEstoqueAviso');
+    const chaveDe = (id) => String(id || '').toLowerCase();
     const selecionados = new Map();
     const disponiveis = db.produtos
-      .filter((produto) => String(produto.status || "").toLocaleLowerCase("pt-BR") !== "inativo")
-      .sort((a, b) => String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR"));
+      .filter((produto) => String(produto.status || '').toLocaleLowerCase('pt-BR') !== 'inativo')
+      .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'));
     const produtoPorId = (id) => db.produtos.find((produto) => sameId(produto.id, id));
-    const tipoAtual = () => String(tipoSel?.value || "").toLowerCase();
-    const precoOuNulo = (valor) => { const numero = Number(valor); return Number.isFinite(numero) && numero > 0 ? numero : null; };
+    const tipoAtual = () => String(tipoSel?.value || '').toLowerCase();
+    const precoOuNulo = (valor) => {
+      const numero = Number(valor);
+      return Number.isFinite(numero) && numero > 0 ? numero : null;
+    };
     // Preço inicial: o gravado no movimento; senão o da venda vinculada; senão o preço do cadastro do produto.
-    const precoInicial = (produto, legado) => precoOuNulo(legado.valorUnitario) || precoOuNulo(legado.unitario) || precoOuNulo(produto?.preco);
+    const precoInicial = (produto, legado) =>
+      precoOuNulo(legado.valorUnitario) || precoOuNulo(legado.unitario) || precoOuNulo(produto?.preco);
     const novoItem = (produto, qtd, legado = {}) => ({
       produtoRef: produto?.id || legado.produtoRef,
-      produtoId: produto?.produtoId || legado.produtoId || "",
-      nome: produto?.nome || legado.item || "Produto",
-      medida: produto?.medida || legado.medida || "",
+      produtoId: produto?.produtoId || legado.produtoId || '',
+      nome: produto?.nome || legado.item || 'Produto',
+      medida: produto?.medida || legado.medida || '',
       qtd: Math.max(1, Math.floor(Number(qtd) || 1)),
       valorUnitario: precoInicial(produto, legado)
     });
@@ -616,36 +766,46 @@ function openForm(kind, row) {
       if (!item.produtoRef) return;
       selecionados.set(chaveDe(item.produtoRef), novoItem(produtoPorId(item.produtoRef), item.qtd, item));
     });
-    const movimentaEstoque = () => tipoAtual() === "descarga" || (tipoAtual() === "carga" && !vendaSelect?.value);
-    const estoqueDe = (produtoRef) => { const produto = produtoPorId(produtoRef); return produto ? estoqueLocal(produto) : 0; };
+    const movimentaEstoque = () =>
+      tipoAtual() === 'descarga' || (tipoAtual() === 'carga' && !vendaSelect?.value);
+    const estoqueDe = (produtoRef) => {
+      const produto = produtoPorId(produtoRef);
+      return produto ? estoqueLocal(produto) : 0;
+    };
 
     const atualizarAviso = () => {
       if (!avisoEl) return;
-      avisoEl.textContent = tipoAtual() === "descarga"
-        ? "Descarga: as quantidades serão somadas ao estoque."
-        : vendaSelect?.value
-          ? "Carga vinculada à venda: o estoque já foi baixado no faturamento, então este movimento não altera o estoque."
-          : "Carga: as quantidades serão retiradas do estoque.";
+      avisoEl.textContent =
+        tipoAtual() === 'descarga'
+          ? 'Descarga: as quantidades serão somadas ao estoque.'
+          : vendaSelect?.value
+            ? 'Carga vinculada à venda: o estoque já foi baixado no faturamento, então este movimento não altera o estoque.'
+            : 'Carga: as quantidades serão retiradas do estoque.';
     };
     const atualizarTotais = () => {
       const itens = [...selecionados.values()];
       const total = itens.reduce((soma, item) => soma + item.qtd, 0);
-      const totalEl = document.getElementById("totalPecasCarga");
-      if (totalEl) totalEl.textContent = `${total} ${total === 1 ? "peça" : "peças"}`;
+      const totalEl = document.getElementById('totalPecasCarga');
+      if (totalEl) totalEl.textContent = `${total} ${total === 1 ? 'peça' : 'peças'}`;
       const valorTotal = itens.reduce((soma, item) => soma + item.qtd * (item.valorUnitario || 0), 0);
-      const valorEl = document.getElementById("totalValorCarga");
+      const valorEl = document.getElementById('totalValorCarga');
       if (valorEl) valorEl.textContent = money(valorTotal);
-      selecionadosEl?.querySelectorAll("[data-carga-total]").forEach((celula) => {
+      selecionadosEl?.querySelectorAll('[data-carga-total]').forEach((celula) => {
         const item = selecionados.get(celula.dataset.cargaTotal);
-        celula.textContent = item?.valorUnitario ? money(item.qtd * item.valorUnitario) : "—";
+        celula.textContent = item?.valorUnitario ? money(item.qtd * item.valorUnitario) : '—';
       });
-      const resumoEl = document.getElementById("cargaResumoProdutos");
-      if (resumoEl) resumoEl.textContent = itens.length ? ` · ${itens.length} ${itens.length === 1 ? "produto" : "produtos"}` : "";
+      const resumoEl = document.getElementById('cargaResumoProdutos');
+      if (resumoEl) {
+        resumoEl.textContent = itens.length
+          ? ` · ${itens.length} ${itens.length === 1 ? 'produto' : 'produtos'}`
+          : '';
+      }
       // Destaca linhas de saída acima do estoque atual (o servidor faz a validação final).
-      selecionadosEl?.querySelectorAll("[data-carga-item]").forEach((linha) => {
+      selecionadosEl?.querySelectorAll('[data-carga-item]').forEach((linha) => {
         const item = selecionados.get(linha.dataset.cargaItem);
-        const falta = item && movimentaEstoque() && tipoAtual() === "carga" && item.qtd > estoqueDe(item.produtoRef);
-        linha.classList.toggle("carga-sem-estoque", Boolean(falta));
+        const falta =
+          item && movimentaEstoque() && tipoAtual() === 'carga' && item.qtd > estoqueDe(item.produtoRef);
+        linha.classList.toggle('carga-sem-estoque', Boolean(falta));
       });
     };
     const renderSelecionados = () => {
@@ -654,37 +814,48 @@ function openForm(kind, row) {
       selecionadosEl.innerHTML = itens.length
         ? `<table class="apontamento-tabela carga-tabela">
             <thead><tr><th>Cód.</th><th>Produto</th><th class="apontamento-num" title="Estoque atual">Est.</th><th class="apontamento-num">Qtd</th><th class="apontamento-num" title="Preço unitário em R$">Unitário</th><th class="apontamento-num">Total</th><th></th></tr></thead>
-            <tbody>${itens.map((item) => {
-              const chave = chaveDe(item.produtoRef);
-              return `<tr data-carga-item="${escapeAttr(chave)}">
-                <td class="mono">${escapeHtml(item.produtoId || "—")}</td>
-                <td>${escapeHtml(item.nome)}${item.medida ? `<small class="carga-item-medida">${escapeHtml(item.medida)}</small>` : ""}</td>
+            <tbody>${itens
+              .map((item) => {
+                const chave = chaveDe(item.produtoRef);
+                return `<tr data-carga-item="${escapeAttr(chave)}">
+                <td class="mono">${escapeHtml(item.produtoId || '—')}</td>
+                <td>${escapeHtml(item.nome)}${item.medida ? `<small class="carga-item-medida">${escapeHtml(item.medida)}</small>` : ''}</td>
                 <td class="apontamento-num">${estoqueDe(item.produtoRef)}</td>
                 <td class="apontamento-num"><input type="number" min="1" step="1" value="${item.qtd}" data-carga-qtd="${escapeAttr(chave)}" aria-label="Quantidade de ${escapeAttr(item.nome)}"></td>
                 <td class="apontamento-num"><input type="text" value="${item.valorUnitario || 0}" data-carga-preco="${escapeAttr(chave)}" aria-label="Preço unitário de ${escapeAttr(item.nome)}"></td>
                 <td class="apontamento-num carga-linha-total" data-carga-total="${escapeAttr(chave)}">—</td>
                 <td class="apontamento-num"><button type="button" class="btn danger small apontamento-remove" data-carga-remove="${escapeAttr(chave)}" aria-label="Remover ${escapeAttr(item.nome)}">×</button></td>
               </tr>`;
-            }).join("")}</tbody>
+              })
+              .join('')}</tbody>
           </table>`
         : `<p class="hint">Nenhum produto selecionado. Pesquise ao lado e toque em Adicionar, ou escolha uma venda para trazer os pneus dela.</p>`;
-      selecionadosEl.querySelectorAll("[data-carga-remove]").forEach((botao) => botao.onclick = () => {
-        selecionados.delete(botao.dataset.cargaRemove);
-        renderSelecionados();
-        renderResultados();
-      });
-      selecionadosEl.querySelectorAll("[data-carga-qtd]").forEach((input) => input.oninput = () => {
-        const item = selecionados.get(input.dataset.cargaQtd);
-        if (!item) return;
-        item.qtd = Math.max(1, Math.floor(Number(input.value) || 1));
-        atualizarTotais();
-      });
-      selecionadosEl.querySelectorAll("[data-carga-preco]").forEach((input) => {
+      selecionadosEl.querySelectorAll('[data-carga-remove]').forEach(
+        (botao) =>
+          (botao.onclick = () => {
+            selecionados.delete(botao.dataset.cargaRemove);
+            renderSelecionados();
+            renderResultados();
+          })
+      );
+      selecionadosEl.querySelectorAll('[data-carga-qtd]').forEach(
+        (input) =>
+          (input.oninput = () => {
+            const item = selecionados.get(input.dataset.cargaQtd);
+            if (!item) return;
+            item.qtd = Math.max(1, Math.floor(Number(input.value) || 1));
+            atualizarTotais();
+          })
+      );
+      selecionadosEl.querySelectorAll('[data-carga-preco]').forEach((input) => {
         const numero = Number(input.value);
-        input.value = (Number.isFinite(numero) ? numero : 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        input.value = (Number.isFinite(numero) ? numero : 0).toLocaleString('pt-BR', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2
+        });
         aplicarMascaraPreco(input);
-        input.addEventListener("focus", () => input.select());
-        input.addEventListener("input", () => {
+        input.addEventListener('focus', () => input.select());
+        input.addEventListener('input', () => {
           const item = selecionados.get(input.dataset.cargaPreco);
           if (!item) return;
           item.valorUnitario = precoOuNulo(parsePrecoBR(input.value));
@@ -695,61 +866,95 @@ function openForm(kind, row) {
     };
     const renderResultados = () => {
       if (!resultadosEl) return;
-      const busca = normalizarBuscaEntidade((buscaProduto?.value || "").trim());
+      const busca = normalizarBuscaEntidade((buscaProduto?.value || '').trim());
       if (busca.length < 2) {
-        resultadosEl.innerHTML = `<p class="hint">${disponiveis.length
-          ? `Digite ao menos 2 letras para pesquisar entre os ${disponiveis.length} produtos ativos.`
-          : "Nenhum produto ativo cadastrado. Cadastre primeiro na aba Produtos."}</p>`;
+        resultadosEl.innerHTML = `<p class="hint">${
+          disponiveis.length
+            ? `Digite ao menos 2 letras para pesquisar entre os ${disponiveis.length} produtos ativos.`
+            : 'Nenhum produto ativo cadastrado. Cadastre primeiro na aba Produtos.'
+        }</p>`;
         return;
       }
       const encontrados = disponiveis
-        .filter((produto) => normalizarBuscaEntidade([produto.produtoId, produto.nome, produto.modelo, produto.medida, produto.categoria].join(" ")).includes(busca))
+        .filter((produto) =>
+          normalizarBuscaEntidade(
+            [produto.produtoId, produto.nome, produto.modelo, produto.medida, produto.categoria].join(' ')
+          ).includes(busca)
+        )
         .slice(0, 12);
       resultadosEl.innerHTML = encontrados.length
-        ? `<div class="apontamento-lista">${encontrados.map((produto) => {
-          const chave = chaveDe(produto.id);
-          const adicionado = selecionados.has(chave);
-          return `<div class="apontamento-resultado">
+        ? `<div class="apontamento-lista">${encontrados
+            .map((produto) => {
+              const chave = chaveDe(produto.id);
+              const adicionado = selecionados.has(chave);
+              return `<div class="apontamento-resultado">
             <div class="apontamento-resultado-info">
-              <span class="mono">${escapeHtml(produto.produtoId || "Sem código")}</span>
+              <span class="mono">${escapeHtml(produto.produtoId || 'Sem código')}</span>
               <strong>${escapeHtml(produto.nome)}</strong>
-              <small>${escapeHtml([produto.categoria, produto.medida].filter(Boolean).join(" · ") || "—")}</small>
+              <small>${escapeHtml([produto.categoria, produto.medida].filter(Boolean).join(' · ') || '—')}</small>
             </div>
             <span class="apontamento-resultado-custo">Estoque: <strong>${estoqueLocal(produto)}</strong></span>
-            <button type="button" class="btn small" data-carga-add="${escapeAttr(chave)}" ${adicionado ? "disabled" : ""}>${adicionado ? "Adicionado" : "Adicionar"}</button>
+            <button type="button" class="btn small" data-carga-add="${escapeAttr(chave)}" ${adicionado ? 'disabled' : ''}>${adicionado ? 'Adicionado' : 'Adicionar'}</button>
           </div>`;
-        }).join("")}</div>`
+            })
+            .join('')}</div>`
         : `<p class="hint">Nenhum produto corresponde à pesquisa.</p>`;
-      resultadosEl.querySelectorAll("[data-carga-add]").forEach((botao) => botao.onclick = () => {
-        const produto = disponiveis.find((p) => chaveDe(p.id) === botao.dataset.cargaAdd);
-        if (!produto) return;
-        selecionados.set(chaveDe(produto.id), novoItem(produto, 1));
-        botao.disabled = true;
-        botao.textContent = "Adicionado";
-        renderSelecionados();
-      });
+      resultadosEl.querySelectorAll('[data-carga-add]').forEach(
+        (botao) =>
+          (botao.onclick = () => {
+            const produto = disponiveis.find((p) => chaveDe(p.id) === botao.dataset.cargaAdd);
+            if (!produto) return;
+            selecionados.set(chaveDe(produto.id), novoItem(produto, 1));
+            botao.disabled = true;
+            botao.textContent = 'Adicionado';
+            renderSelecionados();
+          })
+      );
     };
     // Ao escolher uma venda, a lista vem preenchida com os pneus dela (pode ajustar depois).
     const preencherComVenda = () => {
       const venda = db.pedidos.find((pedido) => sameId(pedido.id, vendaSelect?.value));
       if (!venda) return;
-      const pneus = (venda.itens || []).filter((item) => String(item.tipo || "pneu").toLowerCase() === "pneu" && item.produtoRef);
+      const pneus = (venda.itens || []).filter(
+        (item) => String(item.tipo || 'pneu').toLowerCase() === 'pneu' && item.produtoRef
+      );
       if (!pneus.length) return;
       selecionados.clear();
       pneus.forEach((item) => {
         const chave = chaveDe(item.produtoRef);
         const atual = selecionados.get(chave);
         if (atual) atual.qtd += Math.max(1, Math.floor(Number(item.qtd) || 1));
-        else selecionados.set(chave, novoItem(produtoPorId(item.produtoRef), item.qtd, { produtoRef: item.produtoRef, produtoId: item.produtoId, item: item.descricao, medida: item.medida, unitario: item.unitario }));
+        else {
+          selecionados.set(
+            chave,
+            novoItem(produtoPorId(item.produtoRef), item.qtd, {
+              produtoRef: item.produtoRef,
+              produtoId: item.produtoId,
+              item: item.descricao,
+              medida: item.medida,
+              unitario: item.unitario
+            })
+          );
+        }
       });
       renderSelecionados();
       renderResultados();
-      toast(`Produtos da venda ${venda.numero || ""} carregados. Ajuste se necessário.`, "ok");
+      toast(`Produtos da venda ${venda.numero || ''} carregados. Ajuste se necessário.`, 'ok');
     };
-    vendaSelect?.addEventListener("change", () => { atualizarAviso(); preencherComVenda(); atualizarTotais(); });
-    buscaPedido?.addEventListener("input", () => { atualizarAviso(); atualizarTotais(); });
-    tipoSel?.addEventListener("change", () => { atualizarAviso(); atualizarTotais(); });
-    buscaProduto?.addEventListener("input", renderResultados);
+    vendaSelect?.addEventListener('change', () => {
+      atualizarAviso();
+      preencherComVenda();
+      atualizarTotais();
+    });
+    buscaPedido?.addEventListener('input', () => {
+      atualizarAviso();
+      atualizarTotais();
+    });
+    tipoSel?.addEventListener('change', () => {
+      atualizarAviso();
+      atualizarTotais();
+    });
+    buscaProduto?.addEventListener('input', renderResultados);
     atualizarAviso();
     renderResultados();
     renderSelecionados();
@@ -761,78 +966,98 @@ function openForm(kind, row) {
         qtd: Math.max(0, Math.floor(Number(item.qtd) || 0)),
         valorUnitario: item.valorUnitario || null
       }));
-      if (!itens.length) { toast("Selecione ao menos um produto para o movimento.", "warn"); return; }
-      if (itens.some((item) => item.qtd < 1)) { toast("Cada produto deve ter quantidade igual ou maior que 1.", "warn"); return; }
+      if (!itens.length) {
+        toast('Selecione ao menos um produto para o movimento.', 'warn');
+        return;
+      }
+      if (itens.some((item) => item.qtd < 1)) {
+        toast('Cada produto deve ter quantidade igual ou maior que 1.', 'warn');
+        return;
+      }
       const body = {
-        tipo: tipoSel?.value || "",
-        data: getField(form, "data")?.value || today(),
+        tipo: tipoSel?.value || '',
+        data: getField(form, 'data')?.value || today(),
         pedidoId: vendaSelect?.value || null,
-        motorista: getField(form, "motorista")?.value || "",
-        funcionario: getField(form, "funcionario")?.value || "",
-        status: getField(form, "status")?.value || "",
+        motorista: getField(form, 'motorista')?.value || '',
+        funcionario: getField(form, 'funcionario')?.value || '',
+        status: getField(form, 'status')?.value || '',
         itens
       };
       try {
-        const resultado = await api(editing.id ? `/api/cargas/${editing.id}` : "/api/cargas", {
-          method: editing.id ? "PUT" : "POST",
+        const resultado = await api(editing.id ? `/api/cargas/${editing.id}` : '/api/cargas', {
+          method: editing.id ? 'PUT' : 'POST',
           body: JSON.stringify(body)
         });
-        document.getElementById("modal").classList.remove("show");
+        document.getElementById('modal').classList.remove('show');
         const efeito = resultado.estoqueMovimentado
-          ? (body.tipo === "descarga" ? "Entrada lançada no estoque." : "Saída lançada no estoque.")
-          : "Estoque não alterado (carga de venda já faturada).";
-        toast(`Movimento salvo: ${resultado.totalPecas} peças. ${efeito}`, "ok");
+          ? body.tipo === 'descarga'
+            ? 'Entrada lançada no estoque.'
+            : 'Saída lançada no estoque.'
+          : 'Estoque não alterado (carga de venda já faturada).';
+        toast(`Movimento salvo: ${resultado.totalPecas} peças. ${efeito}`, 'ok');
         await load();
         render();
       } catch (error) {
-        toast(`Não foi possível salvar: ${error.message}`, "bad");
+        toast(`Não foi possível salvar: ${error.message}`, 'bad');
       }
     };
   }
-  form.querySelectorAll(".preco-mask").forEach((input) => {
-    if (input.value !== "") {
+  form.querySelectorAll('.preco-mask').forEach((input) => {
+    if (input.value !== '') {
       const number = Number(input.value);
       const amount = Number.isFinite(number) ? number : parsePrecoBR(input.value);
-      input.value = amount.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      input.value = amount.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
     aplicarMascaraPreco(input);
   });
-  if (kind === "carcacas") {
-    const quantidade = getField(form, "qtd");
-    const valorUnitario = getField(form, "valorUnitario");
-    const valorTotal = document.getElementById("valorTotalCarcaca");
+  if (kind === 'carcacas') {
+    const quantidade = getField(form, 'qtd');
+    const valorUnitario = getField(form, 'valorUnitario');
+    const valorTotal = document.getElementById('valorTotalCarcaca');
     const recalcularTotal = () => {
       if (!valorTotal) return;
       const qtd = Number(quantidade?.value) || 0;
       const unitario = parsePrecoBR(valorUnitario?.value);
       valorTotal.textContent = money(qtd * unitario);
     };
-    quantidade?.addEventListener("input", recalcularTotal);
-    valorUnitario?.addEventListener("input", recalcularTotal);
+    quantidade?.addEventListener('input', recalcularTotal);
+    valorUnitario?.addEventListener('input', recalcularTotal);
     recalcularTotal();
   }
-  if (kind === "carcacaOrdens") {
+  if (kind === 'carcacaOrdens') {
     // Apontamento de entrada de carcaças: seleciona produtos da categoria
     // Carcaça, ajusta quantidade e valor unitário de cada uma e mostra o total.
-    const somenteLeitura = String(row?.status || "").trim().toLocaleLowerCase("pt-BR") === "conferido";
-    const buscaCarcaca = document.getElementById("buscaCarcacaApontamento");
-    const resultadosEl = document.getElementById("carcacaApontamentoResultados");
-    const selecionadosEl = document.getElementById("carcacaApontamentoSelecionados");
-    const totalEl = document.getElementById("totalApontamentoCarcacas");
+    const somenteLeitura =
+      String(row?.status || '')
+        .trim()
+        .toLocaleLowerCase('pt-BR') === 'conferido';
+    const buscaCarcaca = document.getElementById('buscaCarcacaApontamento');
+    const resultadosEl = document.getElementById('carcacaApontamentoResultados');
+    const selecionadosEl = document.getElementById('carcacaApontamentoSelecionados');
+    const totalEl = document.getElementById('totalApontamentoCarcacas');
     const selecionados = new Map();
     const disponiveis = db.produtos
-      .filter((produto) => ehCategoriaCarcaca(produto.categoria) && String(produto.status || "").toLocaleLowerCase("pt-BR") !== "inativo")
-      .sort((a, b) => String(a.medida || "").localeCompare(String(b.medida || ""), "pt-BR") || String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR"));
-    const chaveDe = (id) => String(id || "").toLowerCase();
-    const totalGeral = () => [...selecionados.values()].reduce((soma, item) => soma + item.qtd * item.valorUnitario, 0);
+      .filter(
+        (produto) =>
+          ehCategoriaCarcaca(produto.categoria) &&
+          String(produto.status || '').toLocaleLowerCase('pt-BR') !== 'inativo'
+      )
+      .sort(
+        (a, b) =>
+          String(a.medida || '').localeCompare(String(b.medida || ''), 'pt-BR') ||
+          String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR')
+      );
+    const chaveDe = (id) => String(id || '').toLowerCase();
+    const totalGeral = () =>
+      [...selecionados.values()].reduce((soma, item) => soma + item.qtd * item.valorUnitario, 0);
 
     (Array.isArray(row?.itens) ? row.itens : []).forEach((item) => {
       const produto = disponiveis.find((p) => sameId(p.id, item.produtoRef));
       selecionados.set(chaveDe(item.produtoRef || produto?.id), {
         produtoRef: produto?.id || item.produtoRef,
-        produtoId: item.produtoId || produto?.produtoId || "",
-        nome: produto?.nome || item.item || "Carcaça",
-        medida: item.medida || produto?.medida || "",
+        produtoId: item.produtoId || produto?.produtoId || '',
+        nome: produto?.nome || item.item || 'Carcaça',
+        medida: item.medida || produto?.medida || '',
         qtd: Math.max(1, Math.floor(Number(item.qtd) || 1)),
         valorUnitario: Number(item.valorUnitario) || 0
       });
@@ -840,14 +1065,14 @@ function openForm(kind, row) {
 
     const atualizarTotais = () => {
       let totalUnidades = 0;
-      selecionadosEl.querySelectorAll("[data-apontamento-item]").forEach((linha) => {
+      selecionadosEl.querySelectorAll('[data-apontamento-item]').forEach((linha) => {
         const item = selecionados.get(linha.dataset.apontamentoItem);
-        const totalLinha = linha.querySelector(".apontamento-linha-total");
+        const totalLinha = linha.querySelector('.apontamento-linha-total');
         if (item) totalUnidades += item.qtd;
         if (item && totalLinha) totalLinha.textContent = money(item.qtd * item.valorUnitario);
       });
-      const resumoEl = document.getElementById("apontamentoResumoUnidades");
-      if (resumoEl) resumoEl.textContent = totalUnidades ? ` · ${totalUnidades} un.` : "";
+      const resumoEl = document.getElementById('apontamentoResumoUnidades');
+      if (resumoEl) resumoEl.textContent = totalUnidades ? ` · ${totalUnidades} un.` : '';
       if (totalEl) totalEl.textContent = money(totalGeral());
     };
 
@@ -856,32 +1081,40 @@ function openForm(kind, row) {
       selecionadosEl.innerHTML = itens.length
         ? `<table class="apontamento-tabela">
             <thead><tr><th>Cód.</th><th>Carcaça</th><th>Medida</th><th class="apontamento-num">Qtd</th><th class="apontamento-num">Valor unit.</th><th class="apontamento-num">Total</th><th></th></tr></thead>
-            <tbody>${itens.map((item) => {
-              const chave = chaveDe(item.produtoRef);
-              return `<tr data-apontamento-item="${escapeAttr(chave)}">
-                <td class="mono">${escapeHtml(item.produtoId || "—")}</td>
+            <tbody>${itens
+              .map((item) => {
+                const chave = chaveDe(item.produtoRef);
+                return `<tr data-apontamento-item="${escapeAttr(chave)}">
+                <td class="mono">${escapeHtml(item.produtoId || '—')}</td>
                 <td>${escapeHtml(item.nome)}</td>
-                <td>${escapeHtml(item.medida || "—")}</td>
-                <td class="apontamento-num"><input type="number" min="1" step="1" value="${item.qtd}" data-apontamento-qtd="${escapeAttr(chave)}" aria-label="Quantidade de ${escapeAttr(item.nome)}" ${somenteLeitura ? "disabled" : ""}></td>
-                <td class="apontamento-num"><input type="text" inputmode="decimal" value="${(item.valorUnitario || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}" data-apontamento-valor="${escapeAttr(chave)}" aria-label="Valor unitário de ${escapeAttr(item.nome)}" ${somenteLeitura ? "disabled" : ""}></td>
+                <td>${escapeHtml(item.medida || '—')}</td>
+                <td class="apontamento-num"><input type="number" min="1" step="1" value="${item.qtd}" data-apontamento-qtd="${escapeAttr(chave)}" aria-label="Quantidade de ${escapeAttr(item.nome)}" ${somenteLeitura ? 'disabled' : ''}></td>
+                <td class="apontamento-num"><input type="text" inputmode="decimal" value="${(item.valorUnitario || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}" data-apontamento-valor="${escapeAttr(chave)}" aria-label="Valor unitário de ${escapeAttr(item.nome)}" ${somenteLeitura ? 'disabled' : ''}></td>
                 <td class="apontamento-num apontamento-linha-total">${money(item.qtd * item.valorUnitario)}</td>
-                <td class="apontamento-num">${somenteLeitura ? "" : `<button type="button" class="btn danger small apontamento-remove" data-apontamento-remove="${escapeAttr(chave)}" aria-label="Remover ${escapeAttr(item.nome)}">×</button>`}</td>
+                <td class="apontamento-num">${somenteLeitura ? '' : `<button type="button" class="btn danger small apontamento-remove" data-apontamento-remove="${escapeAttr(chave)}" aria-label="Remover ${escapeAttr(item.nome)}">×</button>`}</td>
               </tr>`;
-            }).join("")}</tbody>
+              })
+              .join('')}</tbody>
           </table>`
         : `<p class="hint">Nenhuma carcaça selecionada. Pesquise ao lado e toque em Adicionar.</p>`;
-      selecionadosEl.querySelectorAll("[data-apontamento-remove]").forEach((botao) => botao.onclick = () => {
-        selecionados.delete(botao.dataset.apontamentoRemove);
-        renderSelecionados();
-        renderResultados();
-      });
-      selecionadosEl.querySelectorAll("[data-apontamento-qtd]").forEach((input) => input.oninput = () => {
-        const item = selecionados.get(input.dataset.apontamentoQtd);
-        if (!item) return;
-        item.qtd = Math.max(1, Math.floor(Number(input.value) || 1));
-        atualizarTotais();
-      });
-      selecionadosEl.querySelectorAll("[data-apontamento-valor]").forEach((input) => {
+      selecionadosEl.querySelectorAll('[data-apontamento-remove]').forEach(
+        (botao) =>
+          (botao.onclick = () => {
+            selecionados.delete(botao.dataset.apontamentoRemove);
+            renderSelecionados();
+            renderResultados();
+          })
+      );
+      selecionadosEl.querySelectorAll('[data-apontamento-qtd]').forEach(
+        (input) =>
+          (input.oninput = () => {
+            const item = selecionados.get(input.dataset.apontamentoQtd);
+            if (!item) return;
+            item.qtd = Math.max(1, Math.floor(Number(input.value) || 1));
+            atualizarTotais();
+          })
+      );
+      selecionadosEl.querySelectorAll('[data-apontamento-valor]').forEach((input) => {
         aplicarMascaraPreco(input);
         input.oninput = () => {
           const item = selecionados.get(input.dataset.apontamentoValor);
@@ -895,52 +1128,66 @@ function openForm(kind, row) {
 
     const renderResultados = () => {
       if (!resultadosEl) return;
-      const busca = normalizarBuscaEntidade((buscaCarcaca?.value || "").trim());
+      const busca = normalizarBuscaEntidade((buscaCarcaca?.value || '').trim());
       if (busca.length < 2) {
-        resultadosEl.innerHTML = `<p class="hint">${disponiveis.length
-          ? `Digite ao menos 2 letras para pesquisar entre as ${disponiveis.length} carcaças cadastradas nos Produtos.`
-          : "Nenhum produto da categoria Carcaça cadastrado. Cadastre primeiro na aba Produtos."}</p>`;
+        resultadosEl.innerHTML = `<p class="hint">${
+          disponiveis.length
+            ? `Digite ao menos 2 letras para pesquisar entre as ${disponiveis.length} carcaças cadastradas nos Produtos.`
+            : 'Nenhum produto da categoria Carcaça cadastrado. Cadastre primeiro na aba Produtos.'
+        }</p>`;
         return;
       }
       const encontrados = disponiveis
-        .filter((produto) => normalizarBuscaEntidade([produto.produtoId, produto.nome, produto.medida, produto.categoria].join(" ")).includes(busca))
+        .filter((produto) =>
+          normalizarBuscaEntidade(
+            [produto.produtoId, produto.nome, produto.medida, produto.categoria].join(' ')
+          ).includes(busca)
+        )
         .slice(0, 12);
       resultadosEl.innerHTML = encontrados.length
-        ? `<div class="apontamento-lista">${encontrados.map((produto) => {
-          const chave = chaveDe(produto.id);
-          const jaAdicionada = selecionados.has(chave);
-          return `<div class="apontamento-resultado">
+        ? `<div class="apontamento-lista">${encontrados
+            .map((produto) => {
+              const chave = chaveDe(produto.id);
+              const jaAdicionada = selecionados.has(chave);
+              return `<div class="apontamento-resultado">
             <div class="apontamento-resultado-info">
-              <span class="mono">${escapeHtml(produto.produtoId || "Sem código")}</span>
+              <span class="mono">${escapeHtml(produto.produtoId || 'Sem código')}</span>
               <strong>${escapeHtml(produto.nome)}</strong>
-              <small>${escapeHtml(produto.medida || "—")}</small>
+              <small>${escapeHtml(produto.medida || '—')}</small>
             </div>
             <span class="apontamento-resultado-custo">Custo cadastrado: <strong>${money(produto.custo)}</strong></span>
-            <button type="button" class="btn small" data-apontamento-add="${escapeAttr(chave)}" ${jaAdicionada || somenteLeitura ? "disabled" : ""}>${jaAdicionada ? "Adicionada" : "Adicionar"}</button>
+            <button type="button" class="btn small" data-apontamento-add="${escapeAttr(chave)}" ${jaAdicionada || somenteLeitura ? 'disabled' : ''}>${jaAdicionada ? 'Adicionada' : 'Adicionar'}</button>
           </div>`;
-          }).join("")}</div>`
+            })
+            .join('')}</div>`
         : `<p class="hint">Nenhuma carcaça corresponde à pesquisa.</p>`;
-      resultadosEl.querySelectorAll("[data-apontamento-add]").forEach((botao) => botao.onclick = () => {
-        const produto = disponiveis.find((p) => chaveDe(p.id) === botao.dataset.apontamentoAdd);
-        if (!produto) return;
-        selecionados.set(chaveDe(produto.id), {
-          produtoRef: produto.id,
-          produtoId: produto.produtoId || "",
-          nome: produto.nome,
-          medida: produto.medida || "",
-          qtd: 1,
-          valorUnitario: Number(produto.custo) || 0
-        });
-        botao.disabled = true;
-        botao.textContent = "Adicionada";
-        renderSelecionados();
-      });
+      resultadosEl.querySelectorAll('[data-apontamento-add]').forEach(
+        (botao) =>
+          (botao.onclick = () => {
+            const produto = disponiveis.find((p) => chaveDe(p.id) === botao.dataset.apontamentoAdd);
+            if (!produto) return;
+            selecionados.set(chaveDe(produto.id), {
+              produtoRef: produto.id,
+              produtoId: produto.produtoId || '',
+              nome: produto.nome,
+              medida: produto.medida || '',
+              qtd: 1,
+              valorUnitario: Number(produto.custo) || 0
+            });
+            botao.disabled = true;
+            botao.textContent = 'Adicionada';
+            renderSelecionados();
+          })
+      );
     };
 
-    buscaCarcaca?.addEventListener("input", renderResultados);
+    buscaCarcaca?.addEventListener('input', renderResultados);
     if (somenteLeitura) {
-      document.getElementById("modalTitle").textContent = `Apontamento ${row?.numero || ""} conferido (somente leitura)`;
-      form.querySelectorAll("input, select, textarea").forEach((el) => { el.disabled = true; });
+      document.getElementById('modalTitle').textContent =
+        `Apontamento ${row?.numero || ''} conferido (somente leitura)`;
+      form.querySelectorAll('input, select, textarea').forEach((el) => {
+        el.disabled = true;
+      });
       const salvar = form.querySelector('button[type="submit"]');
       if (salvar) salvar.disabled = true;
     }
@@ -957,36 +1204,49 @@ function openForm(kind, row) {
         qtd: Math.max(0, Math.floor(Number(item.qtd) || 0)),
         valorUnitario: Number(item.valorUnitario) || 0
       }));
-      if (!itens.length) { toast("Selecione ao menos uma carcaça antes de salvar.", "warn"); return; }
-      if (itens.some((item) => item.qtd < 1)) { toast("Cada carcaça deve ter quantidade igual ou maior que 1.", "warn"); return; }
+      if (!itens.length) {
+        toast('Selecione ao menos uma carcaça antes de salvar.', 'warn');
+        return;
+      }
+      if (itens.some((item) => item.qtd < 1)) {
+        toast('Cada carcaça deve ter quantidade igual ou maior que 1.', 'warn');
+        return;
+      }
       const body = {
-        data: getField(form, "data")?.value || today(),
-        dono: getField(form, "dono")?.value || "",
-        origem: getField(form, "origem")?.value || "",
-        status: getField(form, "status")?.value || "registrado",
-        obs: getField(form, "obs")?.value || "",
+        data: getField(form, 'data')?.value || today(),
+        dono: getField(form, 'dono')?.value || '',
+        origem: getField(form, 'origem')?.value || '',
+        status: getField(form, 'status')?.value || 'registrado',
+        obs: getField(form, 'obs')?.value || '',
         itens
       };
       try {
-        const resultado = await api(editing.id ? `/api/carcaca-ordens/${editing.id}` : "/api/carcaca-ordens", {
-          method: editing.id ? "PUT" : "POST",
-          body: JSON.stringify(body)
-        });
-        document.getElementById("modal").classList.remove("show");
-        toast(`Apontamento ${resultado.numero || ""} salvo. Total ${money(resultado.total)}.`, "ok");
+        const resultado = await api(
+          editing.id ? `/api/carcaca-ordens/${editing.id}` : '/api/carcaca-ordens',
+          {
+            method: editing.id ? 'PUT' : 'POST',
+            body: JSON.stringify(body)
+          }
+        );
+        document.getElementById('modal').classList.remove('show');
+        toast(`Apontamento ${resultado.numero || ''} salvo. Total ${money(resultado.total)}.`, 'ok');
         await load();
         render();
       } catch (error) {
-        toast(`Não foi possível salvar: ${error.message}`, "bad");
+        toast(`Não foi possível salvar: ${error.message}`, 'bad');
       }
     };
   }
-  document.getElementById("modal").classList.add("show");
+  document.getElementById('modal').classList.add('show');
 }
 
 // ===== Formulário do lançamento financeiro =====
 function ehFuncionario(entidade) {
-  return String(entidade?.tipo || "").trim().toLocaleLowerCase("pt-BR") === "funcionário";
+  return (
+    String(entidade?.tipo || '')
+      .trim()
+      .toLocaleLowerCase('pt-BR') === 'funcionário'
+  );
 }
 
 function configurarFormLancamento(form, row) {
@@ -994,56 +1254,72 @@ function configurarFormLancamento(form, row) {
   const categoriaSel = form.querySelector('select[name="categoriaId"]');
   const statusSel = form.querySelector('select[name="status"]');
   const formaSel = form.querySelector('select[name="condicaoPagamentoId"]');
-  const pagamentoEl = getField(form, "pagamento");
-  const pessoaEl = document.getElementById("finPessoa");
-  const entidadeEl = document.getElementById("finEntidadeId");
-  const sugestoes = document.getElementById("finEntidadeSugestoes");
-  const info = document.getElementById("finEntidadeInfo");
-  const origemInfo = document.getElementById("finOrigemInfo");
+  const pagamentoEl = getField(form, 'pagamento');
+  const pessoaEl = document.getElementById('finPessoa');
+  const entidadeEl = document.getElementById('finEntidadeId');
+  const sugestoes = document.getElementById('finEntidadeSugestoes');
+  const info = document.getElementById('finEntidadeInfo');
+  const origemInfo = document.getElementById('finOrigemInfo');
 
   if (!row) {
-    tipoSel.value = finFiltro.tipo === "pagar" ? "pagar" : "receber";
-    statusSel.value = "pendente";
-    getField(form, "emissao").value = today();
-    getField(form, "vencimento").value = today();
+    tipoSel.value = finFiltro.tipo === 'pagar' ? 'pagar' : 'receber';
+    statusSel.value = 'pendente';
+    getField(form, 'emissao').value = today();
+    getField(form, 'vencimento').value = today();
   }
   // Formas de pagamento vêm do cadastro (ativas + a atual do lançamento, se inativa).
   if (formaSel) {
-    const textoAntigo = row && !row.condicaoPagamentoId && row.formaPagamento ? `Não informada (antiga: ${row.formaPagamento})` : "Não informada";
-    formaSel.innerHTML = `<option value="">${escapeHtml(textoAntigo)}</option>` + condicoesAtivas(row?.condicaoPagamentoId)
-      .map((c) => `<option value="${escapeAttr(c.id)}">${escapeHtml(c.Descricao)}${String(c.Status).toLowerCase() === "inativo" ? " (inativa)" : ""}</option>`).join("");
-    formaSel.value = row?.condicaoPagamentoId ? String(row.condicaoPagamentoId) : "";
+    const textoAntigo =
+      row && !row.condicaoPagamentoId && row.formaPagamento
+        ? `Não informada (antiga: ${row.formaPagamento})`
+        : 'Não informada';
+    formaSel.innerHTML =
+      `<option value="">${escapeHtml(textoAntigo)}</option>` +
+      condicoesAtivas(row?.condicaoPagamentoId)
+        .map(
+          (c) =>
+            `<option value="${escapeAttr(c.id)}">${escapeHtml(c.Descricao)}${String(c.Status).toLowerCase() === 'inativo' ? ' (inativa)' : ''}</option>`
+        )
+        .join('');
+    formaSel.value = row?.condicaoPagamentoId ? String(row.condicaoPagamentoId) : '';
   }
 
   // Categorias vêm da tabela financeiroCategoria, filtradas pelo tipo escolhido.
   const preencherCategorias = () => {
-    const atual = categoriaSel.value || String(row?.categoriaId || "");
-    const lista = (db.financeiroCategoria || []).filter((categoria) =>
-      (!categoria.tipo || categoria.tipo === tipoSel.value)
-      && (String(categoria.status || "").toLowerCase() !== "inativo" || sameId(categoria.id, row?.categoriaId)));
-    categoriaSel.innerHTML = `<option value="">Selecione...</option>` + lista
-      .map((categoria) => `<option value="${escapeAttr(categoria.id)}">${escapeHtml(categoria.nome)}</option>`).join("");
+    const atual = categoriaSel.value || String(row?.categoriaId || '');
+    const lista = (db.financeiroCategoria || []).filter(
+      (categoria) =>
+        (!categoria.tipo || categoria.tipo === tipoSel.value) &&
+        (String(categoria.status || '').toLowerCase() !== 'inativo' || sameId(categoria.id, row?.categoriaId))
+    );
+    categoriaSel.innerHTML =
+      `<option value="">Selecione...</option>` +
+      lista
+        .map(
+          (categoria) => `<option value="${escapeAttr(categoria.id)}">${escapeHtml(categoria.nome)}</option>`
+        )
+        .join('');
     if (lista.some((categoria) => String(categoria.id) === String(atual))) categoriaSel.value = String(atual);
   };
-  tipoSel.addEventListener("change", preencherCategorias);
+  tipoSel.addEventListener('change', preencherCategorias);
   preencherCategorias();
 
   // Data do pagamento só vale quando a situação é "pago".
   const atualizarPagamento = (mudouSituacao) => {
-    const pago = statusSel.value === "pago";
+    const pago = statusSel.value === 'pago';
     pagamentoEl.disabled = !pago;
-    pagamentoEl.closest("label")?.classList.toggle("campo-inativo", !pago);
+    pagamentoEl.closest('label')?.classList.toggle('campo-inativo', !pago);
     if (pago && mudouSituacao && !pagamentoEl.value) pagamentoEl.value = today();
   };
-  statusSel.addEventListener("change", () => atualizarPagamento(true));
+  statusSel.addEventListener('change', () => atualizarPagamento(true));
   atualizarPagamento(false);
 
-  if (origemInfo && row?.origem === "venda") {
+  if (origemInfo && row?.origem === 'venda') {
     origemInfo.hidden = false;
-    origemInfo.textContent = `Gerado automaticamente pela venda ${row.pedidoNumero || ""} (forma de pagamento: ${nomeCondicao(row, "formaPagamento") || "não informada"}).`;
-  } else if (origemInfo && row?.origem === "migrado") {
+    origemInfo.textContent = `Gerado automaticamente pela venda ${row.pedidoNumero || ''} (forma de pagamento: ${nomeCondicao(row, 'formaPagamento') || 'não informada'}).`;
+  } else if (origemInfo && row?.origem === 'migrado') {
     origemInfo.hidden = false;
-    origemInfo.textContent = "Importado das abas antigas (Entradas e saídas, Pagar e receber ou Boletos).";
+    origemInfo.textContent = 'Importado das abas antigas (Entradas e saídas, Pagar e receber ou Boletos).';
   }
 
   // Busca da entidade: a partir de 3 letras mostra até 8 cadastros.
@@ -1051,114 +1327,146 @@ function configurarFormLancamento(form, row) {
   const mostrarInfo = () => {
     const entidade = entidadeAtual();
     info.textContent = entidade
-      ? `Vinculado ao cadastro: ${entidade.nome}${entidade.tipo ? ` (${entidade.tipo})` : ""}${entidade.documento ? ` · ${entidade.documento}` : ""}`
+      ? `Vinculado ao cadastro: ${entidade.nome}${entidade.tipo ? ` (${entidade.tipo})` : ''}${entidade.documento ? ` · ${entidade.documento}` : ''}`
       : pessoaEl.value.trim()
-        ? "Sem cadastro vinculado: o nome digitado será salvo como favorecido."
-        : "";
+        ? 'Sem cadastro vinculado: o nome digitado será salvo como favorecido.'
+        : '';
   };
   const ocultar = () => {
     sugestoes.hidden = true;
-    sugestoes.innerHTML = "";
-    pessoaEl.setAttribute("aria-expanded", "false");
+    sugestoes.innerHTML = '';
+    pessoaEl.setAttribute('aria-expanded', 'false');
   };
   const escolher = (entidade) => {
     entidadeEl.value = entidade.id;
-    pessoaEl.value = entidade.nome || "";
+    pessoaEl.value = entidade.nome || '';
     ocultar();
     mostrarInfo();
     pessoaEl.focus();
   };
   const buscar = () => {
     const termo = normalizarBuscaEntidade(pessoaEl.value.trim());
-    if (termo.length < 3) { ocultar(); return; }
-    const nomeCategoria = categoriaSel.selectedOptions[0]?.textContent || "";
+    if (termo.length < 3) {
+      ocultar();
+      return;
+    }
+    const nomeCategoria = categoriaSel.selectedOptions[0]?.textContent || '';
     const priorizarFuncionarios = /funcion|sal[aá]rio|folha/i.test(nomeCategoria);
     const encontrados = db.clientes
-      .filter((cliente) => String(cliente.status || "").toLowerCase() !== "inativo")
-      .filter((cliente) => normalizarBuscaEntidade([cliente.nome, cliente.codigo, cliente.documento, cliente.telefone].join(" ")).includes(termo))
-      .sort((a, b) => (priorizarFuncionarios ? Number(ehFuncionario(b)) - Number(ehFuncionario(a)) : 0)
-        || String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR"))
+      .filter((cliente) => String(cliente.status || '').toLowerCase() !== 'inativo')
+      .filter((cliente) =>
+        normalizarBuscaEntidade(
+          [cliente.nome, cliente.codigo, cliente.documento, cliente.telefone].join(' ')
+        ).includes(termo)
+      )
+      .sort(
+        (a, b) =>
+          (priorizarFuncionarios ? Number(ehFuncionario(b)) - Number(ehFuncionario(a)) : 0) ||
+          String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR')
+      )
       .slice(0, 8);
     sugestoes.innerHTML = encontrados.length
-      ? encontrados.map((cliente) => `<button type="button" class="carga-pedido-sugestao" role="option" aria-selected="false" data-fin-entidade="${escapeAttr(cliente.id)}">
+      ? encontrados
+          .map(
+            (
+              cliente
+            ) => `<button type="button" class="carga-pedido-sugestao" role="option" aria-selected="false" data-fin-entidade="${escapeAttr(cliente.id)}">
           <strong>${escapeHtml(cliente.nome)}</strong>
-          <span>${escapeHtml([cliente.tipo, cliente.documento || cliente.codigo, cliente.cidade].filter(Boolean).join(" · "))}</span>
-        </button>`).join("")
+          <span>${escapeHtml([cliente.tipo, cliente.documento || cliente.codigo, cliente.cidade].filter(Boolean).join(' · '))}</span>
+        </button>`
+          )
+          .join('')
       : `<div class="carga-pedido-sem-sugestoes">Nenhuma entidade encontrada. O nome digitado será salvo como favorecido.</div>`;
     sugestoes.hidden = false;
-    pessoaEl.setAttribute("aria-expanded", "true");
-    sugestoes.querySelectorAll("[data-fin-entidade]").forEach((botao) => {
+    pessoaEl.setAttribute('aria-expanded', 'true');
+    sugestoes.querySelectorAll('[data-fin-entidade]').forEach((botao) => {
       botao.onclick = () => {
         const entidade = db.clientes.find((cliente) => sameId(cliente.id, botao.dataset.finEntidade));
         if (entidade) escolher(entidade);
       };
     });
   };
-  pessoaEl.addEventListener("input", () => {
+  pessoaEl.addEventListener('input', () => {
     const entidade = entidadeAtual();
-    if (entidade && pessoaEl.value.trim() !== String(entidade.nome || "").trim()) entidadeEl.value = "";
+    if (entidade && pessoaEl.value.trim() !== String(entidade.nome || '').trim()) entidadeEl.value = '';
     buscar();
     mostrarInfo();
   });
-  pessoaEl.addEventListener("keydown", (event) => {
-    const primeira = sugestoes.querySelector("[data-fin-entidade]");
-    if (event.key === "ArrowDown" && primeira) {
+  pessoaEl.addEventListener('keydown', (event) => {
+    const primeira = sugestoes.querySelector('[data-fin-entidade]');
+    if (event.key === 'ArrowDown' && primeira) {
       event.preventDefault();
       primeira.focus();
-    } else if (event.key === "Enter" && !sugestoes.hidden) {
+    } else if (event.key === 'Enter' && !sugestoes.hidden) {
       event.preventDefault();
       primeira?.click();
-    } else if (event.key === "Escape") {
+    } else if (event.key === 'Escape') {
       ocultar();
     }
   });
-  pessoaEl.addEventListener("blur", () => setTimeout(() => {
-    if (!sugestoes.contains(document.activeElement)) ocultar();
-  }, 150));
+  pessoaEl.addEventListener('blur', () =>
+    setTimeout(() => {
+      if (!sugestoes.contains(document.activeElement)) ocultar();
+    }, 150)
+  );
   mostrarInfo();
 }
 
 // ===== Formulário da forma/condição de pagamento =====
 function configurarFormCondicao(form, row) {
-  const parcelasEl = getField(form, "QuantidadeParcelas");
-  const prazoEl = getField(form, "PrazoMedio");
-  const previa = document.getElementById("condicaoPrevia");
-  const dica = document.getElementById("condicaoPreviaDica");
+  const parcelasEl = getField(form, 'QuantidadeParcelas');
+  const prazoEl = getField(form, 'PrazoMedio');
+  const previa = document.getElementById('condicaoPrevia');
+  const dica = document.getElementById('condicaoPreviaDica');
   if (!row) {
-    parcelasEl.value = "1";
-    prazoEl.value = "0";
-    form.querySelector('select[name="Status"]').value = "Ativo";
+    parcelasEl.value = '1';
+    prazoEl.value = '0';
+    form.querySelector('select[name="Status"]').value = 'Ativo';
   }
   const atualizar = () => {
     const dias = diasParcelas(parcelasEl.value, prazoEl.value);
-    previa.textContent = descreverVencimentos({ QuantidadeParcelas: parcelasEl.value, PrazoMedio: prazoEl.value });
+    previa.textContent = descreverVencimentos({
+      QuantidadeParcelas: parcelasEl.value,
+      PrazoMedio: prazoEl.value
+    });
     dica.textContent = dias.length
-      ? `Ao faturar a venda, gera ${dias.length} título(s) a receber no Financeiro, vencendo em ${dias.join(", ")} dias.`
-      : "Prazo médio 0: à vista. Ao faturar a venda, gera 1 lançamento no Financeiro vencendo no dia (já recebido se a venda for \"Pago e faturado\").";
+      ? `Ao faturar a venda, gera ${dias.length} título(s) a receber no Financeiro, vencendo em ${dias.join(', ')} dias.`
+      : 'Prazo médio 0: à vista. Ao faturar a venda, gera 1 lançamento no Financeiro vencendo no dia (já recebido se a venda for "Pago e faturado").';
   };
-  parcelasEl.addEventListener("input", atualizar);
-  prazoEl.addEventListener("input", atualizar);
+  parcelasEl.addEventListener('input', atualizar);
+  prazoEl.addEventListener('input', atualizar);
   atualizar();
 }
 
 async function removeRow(kind, id) {
-  if (!confirm("Deseja excluir este registro?")) return;
+  if (!confirm('Deseja excluir este registro?')) return;
   try {
-    await api(`/api/${kind}/${id}`, { method: "DELETE" });
+    await api(`/api/${kind}/${id}`, { method: 'DELETE' });
     await load();
     render();
-  } catch (error) { toast(`Não foi possível excluir: ${error.message}`, "bad"); }
+  } catch (error) {
+    toast(`Não foi possível excluir: ${error.message}`, 'bad');
+  }
 }
 
-function table(kind, heads, map, acoesExtras = () => "") {
+function table(kind, heads, map, acoesExtras = () => '') {
   const q = query.toLowerCase();
   const rows = db[kind].filter((row) => !q || JSON.stringify(row).toLowerCase().includes(q));
   return `<div class="toolbar"><input id="q" placeholder="Filtrar" value="${escapeAttr(query)}" /></div>
-    <div class="table-wrap"><table><thead><tr>${heads.map((h) => `<th>${h}</th>`).join("")}<th></th></tr></thead><tbody>
-    ${rows.map((row) => `<tr>${map(row).map((c) => `<td>${c}</td>`).join("")}
+    <div class="table-wrap"><table><thead><tr>${heads.map((h) => `<th>${h}</th>`).join('')}<th></th></tr></thead><tbody>
+    ${
+      rows
+        .map(
+          (row) => `<tr>${map(row)
+            .map((c) => `<td>${c}</td>`)
+            .join('')}
       <td class="tabela-acoes">${acoesExtras(row)}<button class="btn ghost small" data-edit="${kind}:${row.id}">Editar</button>
-      <button class="btn danger small" data-del="${kind}:${row.id}">Excluir</button></td></tr>`).join("") || `<tr><td colspan="${heads.length + 1}">Nenhum registro.</td></tr>`}
+      <button class="btn danger small" data-del="${kind}:${row.id}">Excluir</button></td></tr>`
+        )
+        .join('') || `<tr><td colspan="${heads.length + 1}">Nenhum registro.</td></tr>`
+    }
     </tbody></table></div>`;
 }
-function escapeAttr(s) { return escapeHtml(s).replace(/`/g, "&#96;"); }
-
+function escapeAttr(s) {
+  return escapeHtml(s).replace(/`/g, '&#96;');
+}

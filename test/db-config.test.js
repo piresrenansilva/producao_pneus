@@ -13,15 +13,29 @@ test('DB_NAME é obrigatório e não utiliza um banco padrão', () => {
 });
 
 test('DB_NAME prevalece sobre todos os nomes na connection string', () => {
-  const base = 'Driver={ODBC Driver 18 for SQL Server};Server=localhost;Database=Antigo;Initial Catalog=Outro;DATABASE=MaisUm;Trusted_Connection=Yes;';
-  assert.equal(connectionStringFor(base, 'MeuBanco'), 'Driver={ODBC Driver 18 for SQL Server};Server=localhost;Trusted_Connection=Yes;Database=MeuBanco;');
-  assert.equal(connectionStringFor(base, 'master'), 'Driver={ODBC Driver 18 for SQL Server};Server=localhost;Trusted_Connection=Yes;Database=master;');
+  const base =
+    'Driver={ODBC Driver 18 for SQL Server};Server=localhost;Database=Antigo;Initial Catalog=Outro;DATABASE=MaisUm;Trusted_Connection=Yes;';
+  assert.equal(
+    connectionStringFor(base, 'MeuBanco'),
+    'Driver={ODBC Driver 18 for SQL Server};Server=localhost;Trusted_Connection=Yes;Database=MeuBanco;'
+  );
+  assert.equal(
+    connectionStringFor(base, 'master'),
+    'Driver={ODBC Driver 18 for SQL Server};Server=localhost;Trusted_Connection=Yes;Database=master;'
+  );
 });
 
 test('preserva valores da connection string que contêm ponto e vírgula', () => {
-  const base = 'Driver={ODBC Driver 18 for SQL Server};PWD={segredo;Database=nao};Server="host;outro";Database=Velho;';
-  assert.equal(connectionStringFor(base, 'Novo'), 'Driver={ODBC Driver 18 for SQL Server};PWD={segredo;Database=nao};Server="host;outro";Database=Novo;');
-  assert.equal(connectionStringFor(base, null), 'Driver={ODBC Driver 18 for SQL Server};PWD={segredo;Database=nao};Server="host;outro";');
+  const base =
+    'Driver={ODBC Driver 18 for SQL Server};PWD={segredo;Database=nao};Server="host;outro";Database=Velho;';
+  assert.equal(
+    connectionStringFor(base, 'Novo'),
+    'Driver={ODBC Driver 18 for SQL Server};PWD={segredo;Database=nao};Server="host;outro";Database=Novo;'
+  );
+  assert.equal(
+    connectionStringFor(base, null),
+    'Driver={ODBC Driver 18 for SQL Server};PWD={segredo;Database=nao};Server="host;outro";'
+  );
   assert.throws(() => connectionStringFor('PWD={incompleto;', 'Novo'), /inválida/);
   assert.equal(connectionStringFor('', 'Novo'), '');
 });

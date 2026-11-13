@@ -51,12 +51,12 @@ Aparece a lista de todas as abas com botões liga/desliga. Clique no de "Relató
 
 O mesmo arquivo controla todas. Exemplos de linha em `dev-flags.json`:
 
-| Para esconder | Mude para `false` |
-|---|---|
-| Relatórios | `"relatorios"` |
-| Vendas | `"vendas"` |
-| Financeiro | `"financeiro"` |
-| Carga e descarga | `"cargas"` |
+| Para esconder       | Mude para `false`      |
+| ------------------- | ---------------------- |
+| Relatórios          | `"relatorios"`         |
+| Vendas              | `"vendas"`             |
+| Financeiro          | `"financeiro"`         |
+| Carga e descarga    | `"cargas"`             |
 | Formas de pagamento | `"condicoesPagamento"` |
 
 Ids disponíveis: `painel`, `clientes`, `veiculos`, `produtos`, `servicos`, `carcacas`, `estoque`, `producao`, `vendas`, `cargas`, `financeiro`, `relatorios`, `condicoesPagamento`.
@@ -91,17 +91,17 @@ Aí o endereço passa a ser `http://localhost:5090/dev?chave=minha-chave`.
 
 ## O que este patch mexe
 
-| Arquivo | Situação |
-|---|---|
-| `src/dev-panel.js` | **novo** — lê/escreve `dev-flags.json`, serve `/dev` e injeta as flags no HTML |
-| `dev-flags.json` | **novo** — o arquivo de uma linha que você edita |
-| `LEIA-ME-PAINEL-DEV.md` | **novo** — este arquivo |
-| `test/dev-panel.test.js` | **novo** — 6 testes |
-| `patches/iniciar.bat` | **novo** — cópia CRLF de segurança do launcher |
-| `server.js` | +4 linhas de integração do painel + endurecimento de boot (erro amigável em vez de janela que fecha) |
-| `src/config.js`, `test/boot.test.js` | aceita `PORT=5090 # comentário` e testa isso |
-| `.env.example`, `CORRECOES.md` | documentação das flags e das correções |
-| `.gitattributes`, `diagnostico.bat` | força CRLF nos `.bat` + script de diagnóstico |
-| `wwwroot/index.html`, `app.js`, `forms.js`, `utils.js` | **intactos** — nada do front-end do projeto foi alterado |
+| Arquivo                                                | Situação                                                                                             |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `src/dev-panel.js`                                     | **novo** — lê/escreve `dev-flags.json`, serve `/dev` e injeta as flags no HTML                       |
+| `dev-flags.json`                                       | **novo** — o arquivo de uma linha que você edita                                                     |
+| `LEIA-ME-PAINEL-DEV.md`                                | **novo** — este arquivo                                                                              |
+| `test/dev-panel.test.js`                               | **novo** — 6 testes                                                                                  |
+| `patches/iniciar.bat`                                  | **novo** — cópia CRLF de segurança do launcher                                                       |
+| `server.js`                                            | +4 linhas de integração do painel + endurecimento de boot (erro amigável em vez de janela que fecha) |
+| `src/config.js`, `test/boot.test.js`                   | aceita `PORT=5090 # comentário` e testa isso                                                         |
+| `.env.example`, `CORRECOES.md`                         | documentação das flags e das correções                                                               |
+| `.gitattributes`, `diagnostico.bat`                    | força CRLF nos `.bat` + script de diagnóstico                                                        |
+| `wwwroot/index.html`, `app.js`, `forms.js`, `utils.js` | **intactos** — nada do front-end do projeto foi alterado                                             |
 
 `npm test`: **20/20**. Validado ao vivo: `/dev` = 200, `POST /api/dev/flags` grava o arquivo, e no **mesmo instante** (sem reiniciar) o `/` passa a entregar o CSS que esconde `data-page="relatorios"`.

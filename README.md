@@ -10,6 +10,20 @@ Conversão do sistema para **HTML, CSS e JavaScript**, com servidor local em **N
 - Microsoft ODBC Driver 18 for SQL Server para autenticação integrada do Windows.
 - Permissão no SQL Server para criar o banco indicado em `DB_NAME` no `.env` e criar/alterar tabelas. Se o banco já existir, não o apague.
 
+## Desenvolvimento e qualidade
+
+```bash
+npm install
+npm run lint        # ESLint
+npm run format      # Prettier
+npm test            # testes automatizados
+npm run verify      # lint + formatação + testes
+```
+
+A organização atual do código está em [docs/ESTRUTURA.md](docs/ESTRUTURA.md).
+O resumo da refatoração e os próximos passos estão em
+[docs/BOAS-PRATICAS.md](docs/BOAS-PRATICAS.md).
+
 ## Iniciar no Windows
 
 1. Extraia esta pasta para um local gravável.

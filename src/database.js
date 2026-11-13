@@ -8,7 +8,11 @@ try {
   sql = authMode === 'windows' ? require('mssql/msnodesqlv8') : require('mssql');
 } catch (error) {
   if (authMode === 'windows') {
-    throw new Error('O driver de autenticação integrada do SQL Server não foi carregado. Rode npm install e verifique se o SQL Server ODBC Driver 18 está instalado. Detalhe: ' + error.message);
+    throw new Error(
+      'O driver de autenticação integrada do SQL Server não foi carregado. Rode npm install e verifique se o SQL Server ODBC Driver 18 está instalado. Detalhe: ' +
+        error.message,
+      { cause: error }
+    );
   }
   throw error;
 }
@@ -268,7 +272,9 @@ async function executeMigrations(pool) {
   ];
   for (const [index, statement] of migrations.entries()) {
     await pool.request().query(statement);
-    if (process.env.LOG_SQL_MIGRATIONS === 'true') console.log(`Migração SQL ${index + 1}/${migrations.length} aplicada.`);
+    if (process.env.LOG_SQL_MIGRATIONS === 'true') {
+      console.log(`Migração SQL ${index + 1}/${migrations.length} aplicada.`);
+    }
   }
 }
 
@@ -436,9 +442,11 @@ async function warnDuplicateProductCodes(pool) {
     ORDER BY produtoId`);
   if (!result.recordset.length) return;
   const lista = result.recordset.map((row) => `${row.produtoId} (${row.quantidade}x)`).join(', ');
-  console.warn(`AVISO: existem códigos de produto repetidos: ${lista}. Corrija-os na aba Produtos; `
-    + 'o índice único do código será criado automaticamente na próxima inicialização. '
-    + 'Novos cadastros com código repetido já são bloqueados.');
+  console.warn(
+    `AVISO: existem códigos de produto repetidos: ${lista}. Corrija-os na aba Produtos; ` +
+      'o índice único do código será criado automaticamente na próxima inicialização. ' +
+      'Novos cadastros com código repetido já são bloqueados.'
+  );
 }
 
 async function initializeDatabase() {
@@ -446,9 +454,12 @@ async function initializeDatabase() {
 
   const masterPool = await new sql.ConnectionPool(configFor('master')).connect();
   try {
-    await masterPool.request()
+    await masterPool
+      .request()
       .input('db', sql.NVarChar(128), dbName)
-      .query("IF DB_ID(@db) IS NULL BEGIN DECLARE @sql nvarchar(400) = N'CREATE DATABASE ' + QUOTENAME(@db); EXEC(@sql); END");
+      .query(
+        "IF DB_ID(@db) IS NULL BEGIN DECLARE @sql nvarchar(400) = N'CREATE DATABASE ' + QUOTENAME(@db); EXEC(@sql); END"
+      );
   } finally {
     await masterPool.close();
   }

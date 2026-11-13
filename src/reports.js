@@ -39,8 +39,9 @@ async function getSalesReport(pool, query, driver = null) {
   const filters = reportFilters(query);
   // Carrega o driver somente na execução da rota. Assim, a validação do
   // relatório pode ser testada sem abrir/depender da conexão SQL Server.
-  const sql = driver || require('./database').sql;
-  const result = await pool.request()
+  const sql = driver || require('./core/sql').sql;
+  const result = await pool
+    .request()
     .input('DataInicial', sql.Date, filters.inicio)
     .input('DataFinal', sql.Date, filters.fim)
     .input('VendedorId', sql.UniqueIdentifier, filters.vendedorId)

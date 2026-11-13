@@ -11,7 +11,7 @@
   --ok: #0d8a4f;
   --warn: #9a6a10;
   --bad: #c0433e;
-  --accent: #01A956;
+  --accent: #01a956;
   --accent-fg: #ffffff;
   --hover-bg: rgba(1, 169, 86, 0.06);
   --sel-bg: rgba(1, 169, 86, 0.07);
@@ -20,11 +20,11 @@
   --overlay: rgba(27, 36, 48, 0.55);
   --login-overlay: rgba(244, 246, 245, 0.94);
   --shadow: rgba(15, 23, 42, 0.18);
-  --login-shadow: rgba(15, 23, 42, 0.20);
+  --login-shadow: rgba(15, 23, 42, 0.2);
 }
 
 /* Tema escuro: o visual original do sistema */
-html[data-theme="dark"] {
+html[data-theme='dark'] {
   color-scheme: dark;
   --bg: #0c0d0f;
   --card: #141518;
@@ -59,11 +59,13 @@ body {
 }
 
 body {
-  font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+  font-family: 'Segoe UI', 'Helvetica Neue', sans-serif;
   background: var(--bg);
   color: var(--text);
   line-height: 1.5;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
 }
 
 button,
@@ -113,7 +115,7 @@ nav {
   background: var(--subtle);
   color: var(--faint);
   font-size: 11px;
-  letter-spacing: .12em;
+  letter-spacing: 0.12em;
 }
 
 .brand-logo img {
@@ -169,32 +171,32 @@ nav button:hover {
 
 /* ===== Tema claro: reforço de contraste (negrito e texto quase preto) =====
    Aplica-se somente ao tema claro; o tema escuro permanece como o original. */
-html:not([data-theme="dark"]) nav button {
+html:not([data-theme='dark']) nav button {
   color: var(--text);
   font-weight: 600;
 }
 
-html:not([data-theme="dark"]) h1,
-html:not([data-theme="dark"]) h2,
-html:not([data-theme="dark"]) .card strong,
-html:not([data-theme="dark"]) .pedido h3,
-html:not([data-theme="dark"]) .produto-admin-info h2,
-html:not([data-theme="dark"]) .produto-venda-info h3,
-html:not([data-theme="dark"]) .produto-resumo-kpi strong,
-html:not([data-theme="dark"]) .venda-topo h2,
-html:not([data-theme="dark"]) .venda-detalhe-topo h2 {
+html:not([data-theme='dark']) h1,
+html:not([data-theme='dark']) h2,
+html:not([data-theme='dark']) .card strong,
+html:not([data-theme='dark']) .pedido h3,
+html:not([data-theme='dark']) .produto-admin-info h2,
+html:not([data-theme='dark']) .produto-venda-info h3,
+html:not([data-theme='dark']) .produto-resumo-kpi strong,
+html:not([data-theme='dark']) .venda-topo h2,
+html:not([data-theme='dark']) .venda-detalhe-topo h2 {
   font-weight: 600;
 }
 
-html:not([data-theme="dark"]) th,
-html:not([data-theme="dark"]) .card span,
-html:not([data-theme="dark"]) .meta,
-html:not([data-theme="dark"]) .badge,
-html:not([data-theme="dark"]) label,
-html:not([data-theme="dark"]) .produto-resumo-kpi span,
-html:not([data-theme="dark"]) .produto-admin-preco>span,
-html:not([data-theme="dark"]) .produto-admin-estoque span,
-html:not([data-theme="dark"]) .produto-venda-preco span {
+html:not([data-theme='dark']) th,
+html:not([data-theme='dark']) .card span,
+html:not([data-theme='dark']) .meta,
+html:not([data-theme='dark']) .badge,
+html:not([data-theme='dark']) label,
+html:not([data-theme='dark']) .produto-resumo-kpi span,
+html:not([data-theme='dark']) .produto-admin-preco > span,
+html:not([data-theme='dark']) .produto-admin-estoque span,
+html:not([data-theme='dark']) .produto-venda-preco span {
   font-weight: 600;
 }
 
@@ -213,7 +215,10 @@ html:not([data-theme="dark"]) .produto-venda-preco span {
   border-radius: 8px;
   font-size: 14px;
   font-weight: 600;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    border-color 0.15s;
 }
 
 .theme-toggle:hover {
@@ -579,14 +584,14 @@ th {
 
 .venda-etapa:disabled {
   cursor: default;
-  opacity: .55;
+  opacity: 0.55;
 }
 
 .venda-etapa-conteudo {
   padding: 20px;
 }
 
-.venda-etapa-conteudo>h2 {
+.venda-etapa-conteudo > h2 {
   margin: 4px 0 6px;
   font-size: 21px;
 }
@@ -606,7 +611,7 @@ th {
   border-radius: 12px;
 }
 
-.cliente-resumo>div {
+.cliente-resumo > div {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -617,7 +622,7 @@ th {
   font-weight: 500;
 }
 
-.cliente-resumo>div>span:last-child {
+.cliente-resumo > div > span:last-child {
   color: var(--muted);
   font-size: 14px;
 }
@@ -663,7 +668,7 @@ th {
   outline: none;
 }
 
-.cliente-sugestao>span:first-child {
+.cliente-sugestao > span:first-child {
   display: grid;
   gap: 2px;
   min-width: 0;
@@ -727,7 +732,9 @@ th {
   background: var(--subtle);
   border: 1px solid var(--line);
   border-radius: 14px;
-  transition: border-color .15s, background .15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
 }
 
 .produto-venda-card.selecionado {
@@ -791,7 +798,7 @@ th {
 .produto-venda-preco span {
   color: var(--faint);
   font-size: 11px;
-  letter-spacing: .04em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
@@ -838,11 +845,11 @@ th {
 }
 
 .produto-resumo-kpi span,
-.produto-admin-preco>span,
+.produto-admin-preco > span,
 .produto-admin-estoque span {
   color: var(--faint);
   font-size: 11px;
-  letter-spacing: .04em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
@@ -876,7 +883,7 @@ th {
   max-width: 640px;
 }
 
-.produto-admin-toolbar>span {
+.produto-admin-toolbar > span {
   padding-bottom: 10px;
   color: var(--muted);
   font-size: 13px;
@@ -943,7 +950,7 @@ th {
   border-top: 1px solid var(--line);
 }
 
-.produto-admin-estoque>div {
+.produto-admin-estoque > div {
   display: grid;
   gap: 4px;
 }
@@ -1003,7 +1010,7 @@ th {
   font-size: 13px;
 }
 
-.venda-item-info>span:not(.mono) {
+.venda-item-info > span:not(.mono) {
   color: var(--muted);
   font-size: 13px;
 }
@@ -1130,7 +1137,7 @@ th {
   border-radius: 12px;
 }
 
-.venda-resumo>div,
+.venda-resumo > div,
 .venda-total {
   display: flex;
   justify-content: space-between;
@@ -1139,11 +1146,11 @@ th {
   border-bottom: 1px solid var(--line);
 }
 
-.venda-resumo>div span {
+.venda-resumo > div span {
   min-width: 0;
 }
 
-.venda-resumo>div strong {
+.venda-resumo > div strong {
   white-space: nowrap;
 }
 
@@ -1374,12 +1381,24 @@ label.full,
   font-size: 13px;
 }
 
-.apontamento-tabela th:nth-child(1) { width: 54px; }
-.apontamento-tabela th:nth-child(3) { width: 64px; }
-.apontamento-tabela th:nth-child(4) { width: 56px; }
-.apontamento-tabela th:nth-child(5) { width: 90px; }
-.apontamento-tabela th:nth-child(6) { width: 84px; }
-.apontamento-tabela th:nth-child(7) { width: 30px; }
+.apontamento-tabela th:nth-child(1) {
+  width: 54px;
+}
+.apontamento-tabela th:nth-child(3) {
+  width: 64px;
+}
+.apontamento-tabela th:nth-child(4) {
+  width: 56px;
+}
+.apontamento-tabela th:nth-child(5) {
+  width: 90px;
+}
+.apontamento-tabela th:nth-child(6) {
+  width: 84px;
+}
+.apontamento-tabela th:nth-child(7) {
+  width: 30px;
+}
 
 .apontamento-tabela th {
   font-size: 12px;
@@ -1410,8 +1429,8 @@ label.full,
   white-space: nowrap;
 }
 
-.apontamento-tabela input[type="number"],
-.apontamento-tabela input[type="text"] {
+.apontamento-tabela input[type='number'],
+.apontamento-tabela input[type='text'] {
   width: 100%;
   box-sizing: border-box;
   text-align: center;
@@ -1439,13 +1458,27 @@ label.full,
 }
 
 /* Carga e descarga: tabela de produtos do movimento */
-.carga-tabela th:nth-child(3) { width: 92px; }
-.carga-tabela th:nth-child(4) { width: 72px; }
-.carga-tabela th:nth-child(5) { width: 72px; }
-.carga-tabela th:nth-child(6) { width: 34px; }
-.carga-tabela tr.carga-sem-estoque td { color: var(--bad, #d64545); }
-.carga-tabela tr.carga-sem-estoque input { border-color: var(--bad, #d64545); }
-.carga-estoque-aviso { margin: 0; }
+.carga-tabela th:nth-child(3) {
+  width: 92px;
+}
+.carga-tabela th:nth-child(4) {
+  width: 72px;
+}
+.carga-tabela th:nth-child(5) {
+  width: 72px;
+}
+.carga-tabela th:nth-child(6) {
+  width: 34px;
+}
+.carga-tabela tr.carga-sem-estoque td {
+  color: var(--bad, #d64545);
+}
+.carga-tabela tr.carga-sem-estoque input {
+  border-color: var(--bad, #d64545);
+}
+.carga-estoque-aviso {
+  margin: 0;
+}
 
 @media (max-width: 900px) {
   .apontamento-grade {
@@ -1733,7 +1766,7 @@ label.full,
     max-width: none;
   }
 
-  .produto-admin-toolbar>span {
+  .produto-admin-toolbar > span {
     padding-bottom: 0;
   }
 
@@ -1795,7 +1828,7 @@ label.full,
   border-radius: 10px;
   box-shadow: 0 8px 24px var(--shadow);
   font-size: 14px;
-  animation: toastIn .25s ease-out;
+  animation: toastIn 0.25s ease-out;
 }
 
 .toast.ok {
@@ -1909,18 +1942,20 @@ label.full,
 }
 
 /* Remove as setas de incremento/decremento nas caixas numéricas do apontamento */
-.apontamento-tabela input[type="number"] {
+.apontamento-tabela input[type='number'] {
   -moz-appearance: textfield;
   appearance: textfield;
 }
 
-.apontamento-tabela input[type="number"]::-webkit-outer-spin-button,
-.apontamento-tabela input[type="number"]::-webkit-inner-spin-button {
+.apontamento-tabela input[type='number']::-webkit-outer-spin-button,
+.apontamento-tabela input[type='number']::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
 
-.apontamento-tabela input[type="number"] { text-align: center; }
+.apontamento-tabela input[type='number'] {
+  text-align: center;
+}
 /* ===== Financeiro unificado ===== */
 .fin-kpis {
   display: grid;
@@ -1973,11 +2008,21 @@ button.fin-kpi:focus-visible {
   font-style: normal;
 }
 
-.fin-kpi.receber { border-left-color: var(--ok); }
-.fin-kpi.pagar { border-left-color: var(--warn); }
-.fin-kpi.vencido { border-left-color: var(--bad); }
-.fin-kpi.vencido strong { color: var(--bad); }
-.fin-kpi.saldo { border-left-color: var(--accent); }
+.fin-kpi.receber {
+  border-left-color: var(--ok);
+}
+.fin-kpi.pagar {
+  border-left-color: var(--warn);
+}
+.fin-kpi.vencido {
+  border-left-color: var(--bad);
+}
+.fin-kpi.vencido strong {
+  color: var(--bad);
+}
+.fin-kpi.saldo {
+  border-left-color: var(--accent);
+}
 
 .fin-painel {
   background: var(--card);
@@ -2061,16 +2106,26 @@ button.fin-kpi:focus-visible {
   white-space: nowrap;
 }
 
-.fin-tipo.receber { color: var(--ok); background: var(--ok-bg); }
-.fin-tipo.pagar { color: var(--warn); background: var(--warn-bg); }
+.fin-tipo.receber {
+  color: var(--ok);
+  background: var(--ok-bg);
+}
+.fin-tipo.pagar {
+  color: var(--warn);
+  background: var(--warn-bg);
+}
 
 .fin-valor {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
 
-.fin-valor.receber { color: var(--ok); }
-.fin-valor.pagar { color: var(--text); }
+.fin-valor.receber {
+  color: var(--ok);
+}
+.fin-valor.pagar {
+  color: var(--text);
+}
 
 .fin-linha.vencido td:first-child {
   color: var(--bad);
@@ -2187,9 +2242,15 @@ label.campo-inativo {
   letter-spacing: 0;
 }
 
-.venda-financeiro .badge.ok { color: var(--ok); }
-.venda-financeiro .badge.warn { color: var(--warn); }
-.venda-financeiro .badge.bad { color: var(--bad); }
+.venda-financeiro .badge.ok {
+  color: var(--ok);
+}
+.venda-financeiro .badge.warn {
+  color: var(--warn);
+}
+.venda-financeiro .badge.bad {
+  color: var(--bad);
+}
 
 .venda-financeiro .fin-sub {
   display: block;
@@ -2214,9 +2275,15 @@ label.campo-inativo {
   font-variant-numeric: tabular-nums;
 }
 
-.venda-detalhe-topo .badge.ok { color: var(--ok); }
-.venda-detalhe-topo .badge.warn { color: var(--warn); }
-.venda-detalhe-topo .badge.bad { color: var(--bad); }
+.venda-detalhe-topo .badge.ok {
+  color: var(--ok);
+}
+.venda-detalhe-topo .badge.warn {
+  color: var(--warn);
+}
+.venda-detalhe-topo .badge.bad {
+  color: var(--bad);
+}
 
 /* ===== Menu lateral e cabeçalho fixos (telas largas) ===== */
 .modal-back {
@@ -2350,13 +2417,27 @@ label.campo-inativo {
 }
 
 /* Preço por produto na carga/descarga */
-.carga-tabela th:nth-child(1) { width: 58px; }
-.carga-tabela th:nth-child(2) { width: auto; }
-.carga-tabela th:nth-child(3) { width: 58px; }
-.carga-tabela th:nth-child(4) { width: 62px; }
-.carga-tabela th:nth-child(5) { width: 96px; }
-.carga-tabela th:nth-child(6) { width: 92px; }
-.carga-tabela th:nth-child(7) { width: 34px; }
+.carga-tabela th:nth-child(1) {
+  width: 58px;
+}
+.carga-tabela th:nth-child(2) {
+  width: auto;
+}
+.carga-tabela th:nth-child(3) {
+  width: 58px;
+}
+.carga-tabela th:nth-child(4) {
+  width: 62px;
+}
+.carga-tabela th:nth-child(5) {
+  width: 96px;
+}
+.carga-tabela th:nth-child(6) {
+  width: 92px;
+}
+.carga-tabela th:nth-child(7) {
+  width: 34px;
+}
 
 .carga-item-medida {
   display: block;
@@ -2438,7 +2519,7 @@ label.campo-inativo {
   color: var(--faint);
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: .04em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 

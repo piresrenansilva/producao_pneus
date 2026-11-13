@@ -4,7 +4,11 @@ const { reportFilters } = require('../src/reports');
 
 test('filtros do relatório aceitam período e vendedor válidos', () => {
   assert.deepEqual(
-    reportFilters({ inicio: '2026-10-01', fim: '2026-10-31', vendedorId: '43faed23-49db-4ca8-a3d8-1a57aa9d7fad' }),
+    reportFilters({
+      inicio: '2026-10-01',
+      fim: '2026-10-31',
+      vendedorId: '43faed23-49db-4ca8-a3d8-1a57aa9d7fad'
+    }),
     { inicio: '2026-10-01', fim: '2026-10-31', vendedorId: '43faed23-49db-4ca8-a3d8-1a57aa9d7fad' }
   );
 });
@@ -57,9 +61,15 @@ test('consulta a procedure com parâmetros e organiza os quatro resultados', asy
   };
   const driver = { Date: 'date', UniqueIdentifier: 'uniqueidentifier' };
 
-  const resultado = await getSalesReport(pool, {
-    inicio: '2026-10-01', fim: '2026-10-31', vendedorId: '43faed23-49db-4ca8-a3d8-1a57aa9d7fad'
-  }, driver);
+  const resultado = await getSalesReport(
+    pool,
+    {
+      inicio: '2026-10-01',
+      fim: '2026-10-31',
+      vendedorId: '43faed23-49db-4ca8-a3d8-1a57aa9d7fad'
+    },
+    driver
+  );
 
   assert.deepEqual(inputs, [
     { nome: 'DataInicial', tipo: 'date', valor: '2026-10-01' },

@@ -56,7 +56,11 @@ test('.env antigo com 5080 é migrado para 5090', () => {
     const warnOriginal = console.warn;
     console.warn = () => {};
     let migrado;
-    try { migrado = applyLegacyPortMigration(arquivo); } finally { console.warn = warnOriginal; }
+    try {
+      migrado = applyLegacyPortMigration(arquivo);
+    } finally {
+      console.warn = warnOriginal;
+    }
     assert.equal(migrado, true);
     assert.equal(process.env.PORT, '5090');
     assert.match(fs.readFileSync(arquivo, 'utf8'), /PORT=5090/);
@@ -85,8 +89,13 @@ function driverFalso() {
   const estado = { meta: null, queries: [] };
 
   class RequestFalso {
-    constructor() { this.params = {}; }
-    input(nome, _tipo, valor) { this.params[nome] = valor; return this; }
+    constructor() {
+      this.params = {};
+    }
+    input(nome, _tipo, valor) {
+      this.params[nome] = valor;
+      return this;
+    }
     async query(texto) {
       estado.queries.push(texto);
       const vazio = { recordset: [], recordsets: [[]] };
@@ -102,10 +111,18 @@ function driverFalso() {
     }
   }
   class PoolFalso {
-    constructor(config) { this.config = config; }
-    async connect() { return this; }
-    request() { return new RequestFalso(); }
-    async close() { return undefined; }
+    constructor(config) {
+      this.config = config;
+    }
+    async connect() {
+      return this;
+    }
+    request() {
+      return new RequestFalso();
+    }
+    async close() {
+      return undefined;
+    }
   }
   const sqlFalso = {
     ConnectionPool: PoolFalso,
@@ -132,10 +149,16 @@ test('fingerprint inclui schema.sql, todos os sql/*.sql e src/database.js', asyn
   const mssqlPath = require.resolve('mssql');
   const cacheAnterior = require.cache[mssqlPath];
   const { sqlFalso } = driverFalso();
-  require.cache[mssqlPath] = { id: mssqlPath, filename: mssqlPath, loaded: true, exports: sqlFalso, children: [], paths: [] };
+  require.cache[mssqlPath] = {
+    id: mssqlPath,
+    filename: mssqlPath,
+    loaded: true,
+    exports: sqlFalso,
+    children: [],
+    paths: []
+  };
   try {
-    const { computeFingerprintFrom, computeFingerprint, sqlVersionFiles } =
-      require('../src/boot-database');
+    const { computeFingerprintFrom, computeFingerprint, sqlVersionFiles } = require('../src/boot-database');
     const arquivos = await sqlVersionFiles();
     const nomes = arquivos.map((a) => path.basename(a));
     assert.ok(nomes.includes('schema.sql'));
@@ -149,14 +172,24 @@ test('fingerprint inclui schema.sql, todos os sql/*.sql e src/database.js', asyn
     ];
     const versao = computeFingerprintFrom(base, 'codigo database.js');
     assert.equal(versao.length, 64);
-    assert.notEqual(versao, computeFingerprintFrom(
-      [{ ...base[0], conteudo: 'CREATE TABLE Y' }, base[1]], 'codigo database.js'
-    ), 'mudar schema.sql deve mudar o hash');
-    assert.notEqual(versao, computeFingerprintFrom(
-      [base[0], { ...base[1], conteudo: 'ALTER PROCEDURE usp_RelatorioVendas' }], 'codigo database.js'
-    ), 'editar sql/relatorios.sql deve mudar o hash e reimplantar a procedure');
-    assert.notEqual(versao, computeFingerprintFrom(base, 'database.js alterado'),
-      'mudar database.js deve mudar o hash');
+    assert.notEqual(
+      versao,
+      computeFingerprintFrom([{ ...base[0], conteudo: 'CREATE TABLE Y' }, base[1]], 'codigo database.js'),
+      'mudar schema.sql deve mudar o hash'
+    );
+    assert.notEqual(
+      versao,
+      computeFingerprintFrom(
+        [base[0], { ...base[1], conteudo: 'ALTER PROCEDURE usp_RelatorioVendas' }],
+        'codigo database.js'
+      ),
+      'editar sql/relatorios.sql deve mudar o hash e reimplantar a procedure'
+    );
+    assert.notEqual(
+      versao,
+      computeFingerprintFrom(base, 'database.js alterado'),
+      'mudar database.js deve mudar o hash'
+    );
 
     const real = await computeFingerprint();
     assert.equal(real.length, 64);
@@ -191,8 +224,12 @@ test('boot rápido: o 2º boot não reaplica schema, migrações nem sql/*.sql',
 
     const { estado, sqlFalso } = driverFalso();
     require.cache[caminhoMssql] = {
-      id: caminhoMssql, filename: caminhoMssql, loaded: true,
-      exports: sqlFalso, children: [], paths: []
+      id: caminhoMssql,
+      filename: caminhoMssql,
+      loaded: true,
+      exports: sqlFalso,
+      children: [],
+      paths: []
     };
     delete require.cache[caminhoDatabase];
     delete require.cache[caminhoBoot];
@@ -204,10 +241,18 @@ test('boot rápido: o 2º boot não reaplica schema, migrações nem sql/*.sql',
     await initializeDatabaseFast();
     assert.equal(estado.meta, versao, 'a versão do schema deve ser gravada no banco');
     const primeiro = estado.queries.length;
-    assert.ok(estado.queries.some((q) => /dbo\.logins/.test(q)), 'schema.sql deve rodar');
-    assert.ok(estado.queries.some((q) => /dbo\.seq_servico/.test(q)), 'migrações devem rodar');
-    assert.ok(estado.queries.some((q) => /usp_RelatorioVendas/.test(q)),
-      'sql/relatorios.sql (procedure do projeto atual) deve rodar no 1º boot');
+    assert.ok(
+      estado.queries.some((q) => /dbo\.logins/.test(q)),
+      'schema.sql deve rodar'
+    );
+    assert.ok(
+      estado.queries.some((q) => /dbo\.seq_servico/.test(q)),
+      'migrações devem rodar'
+    );
+    assert.ok(
+      estado.queries.some((q) => /usp_RelatorioVendas/.test(q)),
+      'sql/relatorios.sql (procedure do projeto atual) deve rodar no 1º boot'
+    );
     assert.ok(primeiro > 40, `esperava dezenas de comandos, veio ${primeiro}`);
 
     await new Promise((resolve) => setImmediate(resolve));
@@ -217,15 +262,20 @@ test('boot rápido: o 2º boot não reaplica schema, migrações nem sql/*.sql',
     await initializeDatabaseFast();
     const segundo = estado.queries.slice();
     assert.ok(segundo.length <= 2, `boot rápido deveria usar no máximo 2 consultas, usou ${segundo.length}`);
-    assert.ok(segundo.every((q) => /dbo\.schema_meta/.test(q)), 'nenhum lote de schema/migração/SQL deve ser reenviado');
+    assert.ok(
+      segundo.every((q) => /dbo\.schema_meta/.test(q)),
+      'nenhum lote de schema/migração/SQL deve ser reenviado'
+    );
     assert.equal(estado.meta, versao);
 
     // FORCE_SCHEMA_CHECK=true volta a rodar tudo (ex.: procedure apagada no banco).
     estado.queries.length = 0;
     process.env.FORCE_SCHEMA_CHECK = 'true';
     await initializeDatabaseFast();
-    assert.ok(estado.queries.some((q) => /usp_RelatorioVendas/.test(q)),
-      'FORCE_SCHEMA_CHECK deve reaplicar os scripts de relatórios');
+    assert.ok(
+      estado.queries.some((q) => /usp_RelatorioVendas/.test(q)),
+      'FORCE_SCHEMA_CHECK deve reaplicar os scripts de relatórios'
+    );
   } finally {
     delete require.cache[caminhoBoot];
     delete require.cache[caminhoDatabase];
@@ -252,7 +302,14 @@ test('os dois caminhos de boot exigem DB_NAME e usam esse nome na conexão', asy
     process.env.DB_CONNECTION_STRING = 'Server=localhost;Database=BancoAntigo;';
     delete process.env.DB_NAME;
     const { estado, sqlFalso } = driverFalso();
-    require.cache[caminhoMssql] = { id: caminhoMssql, filename: caminhoMssql, loaded: true, exports: sqlFalso, children: [], paths: [] };
+    require.cache[caminhoMssql] = {
+      id: caminhoMssql,
+      filename: caminhoMssql,
+      loaded: true,
+      exports: sqlFalso,
+      children: [],
+      paths: []
+    };
     delete require.cache[caminhoDatabase];
     delete require.cache[caminhoBoot];
     const { initializeDatabase, configFor } = require('../src/database');
@@ -261,7 +318,10 @@ test('os dois caminhos de boot exigem DB_NAME e usam esse nome na conexão', asy
     await assert.rejects(initializeDatabaseFast(), /Defina DB_NAME/);
     assert.equal(estado.queries.length, 0);
     process.env.DB_NAME = 'BancoEscolhido';
-    assert.equal(configFor(process.env.DB_NAME).connectionString, 'Server=localhost;Database=BancoEscolhido;');
+    assert.equal(
+      configFor(process.env.DB_NAME).connectionString,
+      'Server=localhost;Database=BancoEscolhido;'
+    );
     assert.equal(configFor('master').connectionString, 'Server=localhost;Database=master;');
   } finally {
     delete require.cache[caminhoBoot];

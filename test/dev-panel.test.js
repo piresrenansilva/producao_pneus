@@ -58,7 +58,11 @@ test('painel DEV: MODULOS_DESATIVADOS no .env trava o módulo', () => {
     assert.equal(flags.relatorios, false);
     assert.equal(flags.cargas, false);
     assert.equal(flags.vendas, true);
-    assert.equal(salvarFlags({ relatorios: true }).relatorios, false, 'painel não consegue religar um travado');
+    assert.equal(
+      salvarFlags({ relatorios: true }).relatorios,
+      false,
+      'painel não consegue religar um travado'
+    );
   } finally {
     delete process.env.MODULOS_DESATIVADOS;
   }

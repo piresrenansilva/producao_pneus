@@ -4,10 +4,17 @@
   "private": true,
   "description": "Sistema local de gestão de pneus com Node.js, SQL Server, HTML, CSS e JavaScript",
   "main": "server.js",
+  "type": "commonjs",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && node --check src/database.js && node --check src/auth.js && node --check src/definitions.js && node --check src/reports.js && node --check src/sale-prices.js && node --check src/operations.js && node --check src/pdf.js && node --check wwwroot/js/theme.js && node --check wwwroot/js/utils.js && node --check wwwroot/js/forms.js && node --check wwwroot/js/relatorios.js && node --check wwwroot/js/vendas.js && node --check wwwroot/js/app.js",
-    "test": "node --test"
+    "check": "node scripts/check-syntax.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "node --test",
+    "test:coverage": "node --test --experimental-test-coverage",
+    "verify": "npm run lint && npm run format:check && npm test"
   },
   "engines": {
     "node": ">=22.0.0"
@@ -20,5 +27,14 @@
   },
   "optionalDependencies": {
     "msnodesqlv8": "^5.6.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.14.0",
+    "globals": "^17.14.0",
+    "prettier": "^3.10.1"
+  },
+  "overrides": {
+    "minimatch": "^11.0.1"
   }
 }

@@ -63,8 +63,8 @@ Depois feche a janela preta (`Ctrl+C`) e dê duplo clique no `iniciar.bat` de no
 
 ### Arquivos do patch
 
-| Modificados | Novos |
-|---|---|
+| Modificados                                                                       | Novos                                                                                                                                               |
+| --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `server.js`, `src/config.js`, `.env.example`, `CORRECOES.md`, `test/boot.test.js` | `src/dev-panel.js`, `dev-flags.json`, `test/dev-panel.test.js`, `LEIA-ME-PAINEL-DEV.md`, `.gitattributes`, `diagnostico.bat`, `patches/iniciar.bat` |
 
 ## Correções de porta e boot (mantidas)

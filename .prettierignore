@@ -1,0 +1,9 @@
+node_modules/
+coverage/
+package-lock.json
+*.sql
+*.bat
+*.PNG
+*.png
+orcamento_ms_pneus.html
+diagnostico-sql.log

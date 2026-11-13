@@ -1,13 +1,13 @@
 'use strict';
 
 const crypto = require('node:crypto');
-const { sql } = require('./database');
+const { sql } = require('./core/sql');
 
 function auditFromRequest(req) {
   // Identidade vem do JWT validado pelo servidor, nunca do corpo da requisição.
   return {
     usuario: String(req.user?.sub || '').slice(0, 100) || null,
-    requisicao: crypto.randomUUID(),
+    requisicao: req.id || crypto.randomUUID(),
     origem: `${req.method} ${req.path}`.slice(0, 200)
   };
 }

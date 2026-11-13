@@ -4,7 +4,7 @@
  * Diagnóstico de conexão com o SQL Server — Gestão de Pneus (Node.js)  v2
  *
  * Uso (na pasta do projeto, com node_modules instalado):
- *     node diagnostico-sql.js
+ *     node scripts/diagnostico-sql.js
  *
  * O script NÃO altera nada: só verifica serviços, instâncias, portas reais de cada
  * instância (registry + sockets), drivers e testa conexões candidatas até achar a que
@@ -14,9 +14,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { connectionStringFor } = require('./src/db-config');
+const { connectionStringFor } = require('../src/db-config');
 
-const ROOT = __dirname;
+const ROOT = path.join(__dirname, '..');
 const LOG_PATH = path.join(ROOT, 'diagnostico-sql.log');
 const linhasLog = [];
 
@@ -39,7 +39,6 @@ const info = (t) => log(`            ${t}`);
 
 const isWindows = process.platform === 'win32';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const resumo = [];
 
 try {
   require('dotenv').config({ path: path.join(ROOT, '.env') });
@@ -90,14 +89,6 @@ function psJson(comando) {
   }
 }
 const lista = (v) => (v == null ? [] : Array.isArray(v) ? v : [v]);
-function bloco(texto, indent = '            ') {
-  const limpo = String(texto || '').replace(/\r/g, '').trim();
-  if (!limpo) {
-    log(`${indent}(sem saída)`);
-    return;
-  }
-  for (const l of limpo.split('\n')) log(`${indent}${l.replace(/\s+$/, '')}`);
-}
 function tabela(registros, colunas) {
   if (!registros.length) return;
   const larguras = colunas.map((c) =>
@@ -151,7 +142,7 @@ const portasPorInstancia = [];
 if (isWindows) {
   titulo('2) Serviços do SQL Server');
   const svcRaw = psJson(
-    "Get-CimInstance Win32_Service -ErrorAction SilentlyContinue | " +
+    'Get-CimInstance Win32_Service -ErrorAction SilentlyContinue | ' +
       "Where-Object { $_.Name -eq 'SQLBrowser' -or $_.Name -eq 'MSSQLSERVER' -or $_.Name -like 'MSSQL$*' } | " +
       'Select-Object Name,State,StartMode,ProcessId | ConvertTo-Json -Compress'
   );
@@ -185,7 +176,7 @@ if (isWindows) {
     "$k='HKLM:\\SOFTWARE\\Microsoft\\Microsoft SQL Server\\Instance Names\\SQL';" +
       'if (Test-Path $k) { $n=Get-ItemProperty $k; $out=foreach($p in $n.PSObject.Properties){' +
       "if($p.Name -like 'PS*'){continue}; $id=$p.Value;" +
-      "$b=\"HKLM:\\SOFTWARE\\Microsoft\\Microsoft SQL Server\\$id\\MSSQLServer\\SuperSocketNetLib\\Tcp\";" +
+      '$b="HKLM:\\SOFTWARE\\Microsoft\\Microsoft SQL Server\\$id\\MSSQLServer\\SuperSocketNetLib\\Tcp";' +
       '$t=Get-ItemProperty $b -ErrorAction SilentlyContinue;' +
       '$a=Get-ItemProperty "$b\\IPAll" -ErrorAction SilentlyContinue;' +
       '[pscustomobject]@{ Instance=$p.Name; Id=$id; TcpEnabled=$t.TcpEnabled; TcpPort=$t.TcpPort;' +
@@ -231,17 +222,24 @@ if (isWindows) {
     tabela(portasPorInstancia, [
       { titulo: 'Serviço', valor: (r) => r.Service },
       { titulo: 'Status', valor: (r) => r.State },
-      { titulo: 'Portas TCP em escuta', valor: (r) => (lista(r.Ports).filter(Boolean).join(', ') || '(nenhuma)') }
+      {
+        titulo: 'Portas TCP em escuta',
+        valor: (r) => lista(r.Ports).filter(Boolean).join(', ') || '(nenhuma)'
+      }
     ]);
     for (const p of portasPorInstancia) {
       for (const porta of lista(p.Ports).filter(Boolean)) portasConhecidas.add(Number(porta));
     }
     if (!portasConhecidas.size) {
-      falha('Nenhum serviço do SQL Server está escutando em TCP: só dá para conectar por memória compartilhada/named pipes (mesma máquina, dentro do mesmo processo).');
+      falha(
+        'Nenhum serviço do SQL Server está escutando em TCP: só dá para conectar por memória compartilhada/named pipes (mesma máquina, dentro do mesmo processo).'
+      );
       info('É isso que quebra o Node: o driver ODBC precisa de TCP (ou de named pipes habilitado).');
     }
     if (!portasConhecidas.has(1433)) {
-      aviso('Nenhum serviço escuta em 1433 → por isso a mensagem "localhost,1433 / servidor não encontrado".');
+      aviso(
+        'Nenhum serviço escuta em 1433 → por isso a mensagem "localhost,1433 / servidor não encontrado".'
+      );
     }
   } else {
     aviso('Não foi possível mapear portas por serviço.');
@@ -258,19 +256,20 @@ if (isWindows) {
   titulo('5) Drivers ODBC instalados');
   const drvRaw = psJson(
     "(Get-OdbcDriver -ErrorAction SilentlyContinue | Where-Object { $_.Name -like '*SQL Server*' } | " +
-      "ForEach-Object { $_.Name } | Sort-Object -Unique) | ConvertTo-Json -Compress"
+      'ForEach-Object { $_.Name } | Sort-Object -Unique) | ConvertTo-Json -Compress'
   );
   const drivers = lista(drvRaw).filter(Boolean);
   if (drivers.length) for (const d of drivers) log(`  - ${d}`);
   else falha('Nenhum driver ODBC de SQL Server encontrado.');
-  if (drivers.some((d) => /ODBC Driver 18/.test(d))) ok('ODBC Driver 18 presente (necessário para DB_AUTH=windows).');
-  else if (drivers.some((d) => /ODBC Driver 17/.test(d))) {
+  if (drivers.some((d) => /ODBC Driver 18/.test(d))) {
+    ok('ODBC Driver 18 presente (necessário para DB_AUTH=windows).');
+  } else if (drivers.some((d) => /ODBC Driver 17/.test(d))) {
     aviso('Só o ODBC Driver 17 foi encontrado.');
     info('Defina DB_ODBC_DRIVER=ODBC Driver 17 for SQL Server no .env (ou instale o 18).');
   } else falha('ODBC Driver 18 não encontrado — instale "Microsoft ODBC Driver 18 for SQL Server".');
 
   titulo('6) Testes com sqlcmd (se instalado) — com -C para ignorar certificado');
-  const sqlcmdPath = ps("(Get-Command sqlcmd -ErrorAction SilentlyContinue).Source");
+  const sqlcmdPath = ps('(Get-Command sqlcmd -ErrorAction SilentlyContinue).Source');
   if (!sqlcmdPath || /erro|não|error/i.test(sqlcmdPath)) {
     aviso('sqlcmd não encontrado no PATH (não é obrigatório; a seção 7 testa via Node).');
   } else {
@@ -297,7 +296,9 @@ if (isWindows) {
   }
 } else {
   titulo('2) Verificações de ambiente');
-  aviso(`Este script foi feito para Windows (plataforma atual: ${process.platform}). Seguindo só com os testes de conexão.`);
+  aviso(
+    `Este script foi feito para Windows (plataforma atual: ${process.platform}). Seguindo só com os testes de conexão.`
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -350,7 +351,13 @@ function candidatos() {
   const out = [];
   const vistos = new Set();
   const push = (rotulo, cfg, extra = {}) => {
-    const chave = JSON.stringify([rotulo, cfg.connectionString || '', cfg.server, cfg.port, cfg.options?.instanceName]);
+    const chave = JSON.stringify([
+      rotulo,
+      cfg.connectionString || '',
+      cfg.server,
+      cfg.port,
+      cfg.options?.instanceName
+    ]);
     if (vistos.has(chave)) return;
     vistos.add(chave);
     out.push({ rotulo, cfg, ...extra });
@@ -367,12 +374,19 @@ function candidatos() {
 
   // 2) connection string completa, se configurada
   if (lerEnv('DB_CONNECTION_STRING')) {
-    push('DB_CONNECTION_STRING do .env', { ...base, server: servidor, connectionString: lerEnv('DB_CONNECTION_STRING') });
+    push('DB_CONNECTION_STRING do .env', {
+      ...base,
+      server: servidor,
+      connectionString: lerEnv('DB_CONNECTION_STRING')
+    });
   }
 
   // 3) instâncias nomeadas (via SQL Browser)
   const nomes = new Set(
-    instancias.map((i) => i.Instance).filter((n) => n && n !== 'MSSQLSERVER').concat(['SQLEXPRESS'])
+    instancias
+      .map((i) => i.Instance)
+      .filter((n) => n && n !== 'MSSQLSERVER')
+      .concat(['SQLEXPRESS'])
   );
   for (const nome of nomes) {
     push(`${servidor}\\${nome} (instância nomeada)`, {
@@ -383,7 +397,10 @@ function candidatos() {
   }
 
   // 4) porta(s) real(is) descobertas + 1433
-  const portas = new Set([...portasPorInstancia.flatMap((p) => lista(p.Ports).filter(Boolean).map(Number)), 1433]);
+  const portas = new Set([
+    ...portasPorInstancia.flatMap((p) => lista(p.Ports).filter(Boolean).map(Number)),
+    1433
+  ]);
   for (const porta of [...portas].filter((p) => p > 0).sort((a, b) => a - b)) {
     push(`${servidor},${porta} (porta fixa)`, { ...base, server: servidor, port: porta });
   }
@@ -393,11 +410,18 @@ function candidatos() {
   const alvosLocais = [servidor];
   for (const nome of nomes) alvosLocais.push(`${servidor}\\${nome}`);
   for (const alvo of alvosLocais.filter((v, i, a) => a.indexOf(v) === i)) {
-    const cs =
-      `Driver={${driver}};Server=${alvo};Database=master;Trusted_Connection=Yes;Encrypt=No`;
-    push(`connection string sem porta (Encrypt=No): ${alvo}`, { ...base, server: alvo.split('\\')[0], connectionString: cs });
+    const cs = `Driver={${driver}};Server=${alvo};Database=master;Trusted_Connection=Yes;Encrypt=No`;
+    push(`connection string sem porta (Encrypt=No): ${alvo}`, {
+      ...base,
+      server: alvo.split('\\')[0],
+      connectionString: cs
+    });
     const csPipe = `${cs};Network Library=dbmslpcn`;
-    push(`named pipes/shared memory: ${alvo}`, { ...base, server: alvo.split('\\')[0], connectionString: csPipe });
+    push(`named pipes/shared memory: ${alvo}`, {
+      ...base,
+      server: alvo.split('\\')[0],
+      connectionString: csPipe
+    });
   }
 
   // 6) LocalDB
@@ -437,12 +461,17 @@ async function testar(item) {
   let pool;
   try {
     pool = await new sql.ConnectionPool(cfg).connect();
-    const r = await pool.request().query(
-      "SELECT @@SERVERNAME AS servidor, ISNULL(SERVERPROPERTY('InstanceName'), '(padrão)') AS instancia, " +
-        "SERVERPROPERTY('ProductVersion') AS versao, SUSER_SNAME() AS login, DB_NAME() AS banco"
-    );
+    const r = await pool
+      .request()
+      .query(
+        "SELECT @@SERVERNAME AS servidor, ISNULL(SERVERPROPERTY('InstanceName'), '(padrão)') AS instancia, " +
+          "SERVERPROPERTY('ProductVersion') AS versao, SUSER_SNAME() AS login, DB_NAME() AS banco"
+      );
     const d = r.recordset?.[0] || {};
-    return { ok: true, detalhe: `${d.servidor} | instância ${d.instancia} | versão ${d.versao} | login ${d.login}` };
+    return {
+      ok: true,
+      detalhe: `${d.servidor} | instância ${d.instancia} | versão ${d.versao} | login ${d.login}`
+    };
   } catch (erro) {
     const msg = (erro.message || String(erro)).replace(/\s+/g, ' ');
     return {
@@ -460,7 +489,6 @@ async function main() {
   const listaCandidatos = candidatos();
   let vencedor = null;
   for (const item of listaCandidatos) {
-    // eslint-disable-next-line no-await-in-loop
     const r = await testar(item);
     if (r.ok) {
       log(`  Testando ${item.rotulo} ... CONECTOU`);
@@ -473,7 +501,7 @@ async function main() {
         info('↳ o servidor respondeu: é só validação de certificado (o app usa Encrypt=No, deve passar).');
       }
     }
-    // eslint-disable-next-line no-await-in-loop
+
     await sleep(80);
   }
 

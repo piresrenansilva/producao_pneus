@@ -36,7 +36,9 @@ function falso(valor) {
 function travados() {
   // Opcional: MODULOS_DESATIVADOS=relatorios,cargas no .env = trava permanente
   return String(process.env.MODULOS_DESATIVADOS || '')
-    .split(/[,;\s]+/).map((s) => s.trim()).filter((id) => IDS_VALIDOS.has(id));
+    .split(/[,;\s]+/)
+    .map((s) => s.trim())
+    .filter((id) => IDS_VALIDOS.has(id));
 }
 
 function lerFlags() {
@@ -61,9 +63,7 @@ function salvarFlags(recebido) {
   const atual = lerFlags();
   const novo = {};
   for (const [id] of MODULOS) {
-    const valor = Object.prototype.hasOwnProperty.call(recebido || {}, id)
-      ? recebido[id]
-      : atual[id];
+    const valor = Object.prototype.hasOwnProperty.call(recebido || {}, id) ? recebido[id] : atual[id];
     novo[id] = !falso(valor);
   }
   fs.writeFileSync(ARQUIVO, `${JSON.stringify(novo, null, 2)}\n`, 'utf8');
@@ -80,7 +80,9 @@ function somenteLocal(req) {
 }
 
 function autorizado(req) {
-  if (!somenteLocal(req)) return { ok: false, status: 403, detail: 'O painel DEV só abre neste computador (localhost).' };
+  if (!somenteLocal(req)) {
+    return { ok: false, status: 403, detail: 'O painel DEV só abre neste computador (localhost).' };
+  }
   const chave = String(process.env.DEV_KEY || '').trim();
   if (chave && req.get('x-dev-key') !== chave && req.query?.chave !== chave) {
     return { ok: false, status: 401, detail: 'Chave DEV inválida. Use /dev?chave=SUA_CHAVE.' };
@@ -101,7 +103,8 @@ function injetarFlags(html) {
   const json = JSON.stringify(flags).replace(/</g, '\\u003c');
 
   const css = `<style id="gp-flags-css">${desativados
-    .map((id) => `#nav button[data-page="${id}"]{display:none!important}`).join('')}</style>`;
+    .map((id) => `#nav button[data-page="${id}"]{display:none!important}`)
+    .join('')}</style>`;
 
   const cliente = [
     '<script>',
@@ -132,9 +135,7 @@ function injetarFlags(html) {
   ].join('\n');
 
   const bloco = `<script>window.GP_FLAGS=${json};</script>\n${css}\n${cliente}\n`;
-  return /<\/body>/i.test(html)
-    ? html.replace(/<\/body>/i, `${bloco}</body>`)
-    : html + bloco;
+  return /<\/body>/i.test(html) ? html.replace(/<\/body>/i, `${bloco}</body>`) : html + bloco;
 }
 
 // ===== Página /dev =====
@@ -207,7 +208,10 @@ carregar();
 
 function registrarDevRoutes(app) {
   app.get('/dev', guardaDev, (req, res) => {
-    res.set('Cache-Control', 'no-store').type('html').send(paginaDev(req.query.chave || ''));
+    res
+      .set('Cache-Control', 'no-store')
+      .type('html')
+      .send(paginaDev(req.query.chave || ''));
   });
 
   app.get('/api/dev/flags', guardaDev, (req, res) => {

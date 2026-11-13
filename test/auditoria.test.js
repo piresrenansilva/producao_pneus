@@ -8,13 +8,24 @@ const path = require('node:path');
 function setupDriver(failInsert = false) {
   const calls = [];
   class Transaction {
-    async begin() { calls.push('begin'); }
-    async commit() { calls.push('commit'); }
-    async rollback() { calls.push('rollback'); }
+    async begin() {
+      calls.push('begin');
+    }
+    async commit() {
+      calls.push('commit');
+    }
+    async rollback() {
+      calls.push('rollback');
+    }
   }
   class Request {
-    constructor() { this.inputs = {}; }
-    input(key, _type, value) { this.inputs[key] = value; return this; }
+    constructor() {
+      this.inputs = {};
+    }
+    input(key, _type, value) {
+      this.inputs[key] = value;
+      return this;
+    }
     async query(query) {
       if (query.includes("@key=N'gp_usuario'")) {
         calls.push(this.inputs.usuario ? ['context', this.inputs.usuario, this.inputs.requisicao] : 'clear');
@@ -28,7 +39,16 @@ function setupDriver(failInsert = false) {
       throw new Error('SQL inesperado no teste');
     }
   }
-  return { calls, sql: { Request, Transaction, ISOLATION_LEVEL: { READ_COMMITTED: 1 }, NVarChar: () => 'texto', UniqueIdentifier: 'guid' } };
+  return {
+    calls,
+    sql: {
+      Request,
+      Transaction,
+      ISOLATION_LEVEL: { READ_COMMITTED: 1 },
+      NVarChar: () => 'texto',
+      UniqueIdentifier: 'guid'
+    }
+  };
 }
 
 async function testCreateRow(failInsert) {
@@ -38,18 +58,33 @@ async function testCreateRow(failInsert) {
   const saved = [database, operations, context].map((file) => require.cache[file]);
   const fake = setupDriver(failInsert);
   try {
-    require.cache[database] = { id: database, filename: database, loaded: true, exports: { sql: fake.sql }, children: [], paths: [] };
+    require.cache[database] = {
+      id: database,
+      filename: database,
+      loaded: true,
+      exports: { sql: fake.sql },
+      children: [],
+      paths: []
+    };
     delete require.cache[operations];
     delete require.cache[context];
     const { createRow } = require('../src/operations');
     const { auditFromRequest } = require('../src/audit-context');
-    const audit = auditFromRequest({ method: 'POST', path: '/api/servicos', user: { sub: 'OPERADOR' }, body: { usuario: 'FALSO' } });
+    const audit = auditFromRequest({
+      method: 'POST',
+      path: '/api/servicos',
+      user: { sub: 'OPERADOR' },
+      body: { usuario: 'FALSO' }
+    });
     assert.equal(audit.usuario, 'OPERADOR');
     assert.match(audit.requisicao, /^[a-f0-9-]{36}$/);
-    if (failInsert) await assert.rejects(createRow({}, 'servicos', { nome: 'Exemplo' }, audit), /falha simulada/);
-    else await createRow({}, 'servicos', { nome: 'Exemplo' }, audit);
-    assert.deepEqual(fake.calls.map((c) => Array.isArray(c) ? c[0] : c),
-      ['begin', 'context', 'insert', 'clear', failInsert ? 'rollback' : 'commit']);
+    if (failInsert) {
+      await assert.rejects(createRow({}, 'servicos', { nome: 'Exemplo' }, audit), /falha simulada/);
+    } else await createRow({}, 'servicos', { nome: 'Exemplo' }, audit);
+    assert.deepEqual(
+      fake.calls.map((c) => (Array.isArray(c) ? c[0] : c)),
+      ['begin', 'context', 'insert', 'clear', failInsert ? 'rollback' : 'commit']
+    );
   } finally {
     [database, operations, context].forEach((file, i) => {
       delete require.cache[file];

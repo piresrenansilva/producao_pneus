@@ -6,7 +6,7 @@
 
 1. **Baixe o arquivo `gestao_pneus-node-atualizado.zip`** (está aqui no workspace).
 2. **Feche o servidor**: vá na janela preta do `iniciar.bat` e pressione `Ctrl+C` (ou feche a janela).
-3. **Extraia o ZIP** (botão direito → *Extrair Tudo...*). Você terá uma pasta `gestao_pneus-node-main`.
+3. **Extraia o ZIP** (botão direito → _Extrair Tudo..._). Você terá uma pasta `gestao_pneus-node-main`.
 4. **Copie TODO o conteúdo** dessa pasta para dentro da pasta do projeto no seu computador (a mesma pasta onde já existem `server.js`, `schema.sql` e `wwwroot`), escolhendo **Substituir todos os arquivos** quando o Windows perguntar.
    - Não se preocupe: suas pastas `node_modules` e o arquivo `.env` **não são apagados** (o ZIP não os contém).
    - O `iniciar.bat` **não está no ZIP** de propósito, para não mexer no seu.
@@ -15,12 +15,12 @@
 
 ## Como confirmar que funcionou
 
-| Verificação | O que você deve ver |
-|---|---|
-| Barra lateral, embaixo | a etiqueta **"versão 2026.10.21-carcacas"** |
-| Aba Produtos → Cadastrar produto | campo **Categoria virou uma lista** (Revenda / Carcaça) |
-| Aba Carcaças | botão **"Novo apontamento"** e tela de ordens (em vez da tabela antiga) |
-| Aba Vendas → etapa Pneus | carcaças **não aparecem** no catálogo |
+| Verificação                      | O que você deve ver                                                     |
+| -------------------------------- | ----------------------------------------------------------------------- |
+| Barra lateral, embaixo           | a etiqueta **"versão 2026.10.21-carcacas"**                             |
+| Aba Produtos → Cadastrar produto | campo **Categoria virou uma lista** (Revenda / Carcaça)                 |
+| Aba Carcaças                     | botão **"Novo apontamento"** e tela de ordens (em vez da tabela antiga) |
+| Aba Vendas → etapa Pneus         | carcaças **não aparecem** no catálogo                                   |
 
 > Se a etiqueta de versão **não aparecer** depois do Ctrl+F5: os arquivos foram copiados para a pasta errada ou há outra instância do servidor rodando em outra porta. Confira se o endereço aberto é o mesmo `http://localhost:5090` iniciado pelo bat. O `iniciar.bat` novo usa `cd /d "%~dp0"`, ou seja, sempre a própria pasta onde ele está; confira se você colou os arquivos nela.
 
@@ -48,12 +48,12 @@
 
 ## Arquivos alterados (se preferir aplicar manualmente)
 
-| Arquivo no workspace (raiz) | Destino no projeto |
-|---|---|
-| `server.js`, `schema.sql` | pasta raiz do projeto |
-| `src\definitions.js`, `src\operations.js` | pasta `src\` |
-| `index.html`, `styles.css` | pasta `wwwroot\` |
-| `utils.js`, `forms.js`, `vendas.js`, `app.js` | pasta `wwwroot\js\` |
+| Arquivo no workspace (raiz)                   | Destino no projeto    |
+| --------------------------------------------- | --------------------- |
+| `server.js`, `schema.sql`                     | pasta raiz do projeto |
+| `src\definitions.js`, `src\operations.js`     | pasta `src\`          |
+| `index.html`, `styles.css`                    | pasta `wwwroot\`      |
+| `utils.js`, `forms.js`, `vendas.js`, `app.js` | pasta `wwwroot\js\`   |
 
 Na pasta `patches/` há um `.patch` cumulativo por arquivo (contra a `main` do GitHub), para aplicar com `git apply` se preferir.
 
